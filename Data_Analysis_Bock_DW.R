@@ -99,7 +99,6 @@ write.csv(dist, "Datasets/dist_boxes.csv")
 
 # Biomass Plot ------------------------------------------------------------
 
-
 #Supplementary biomass plot, with all data in it, separated out by aboveground and belowground parts of plants. 
 supp_biomass <- combo_ds2 %>%
   mutate(Compartment = factor(Compartment, levels = c("Shoot", "Root"), 
@@ -131,25 +130,15 @@ plot <- combo_ds2 %>%
   as.data.frame()
 
 
-norm_test <- plot %>%
-  group_by(Type_Barrier)%>%
-  summarise(shap = list(shapiro.test(Plant_Weight_g))) #Bonferroni adjusment (dividing by number of tests done) because performing 3 t tests
-0.05/5
-#Bonferroni adjustment on p-val above
-norm_test$shap
-
-#All have normal dist when you adjust the p-val for the three tests according to the Shapiro test.
 
 #Normality
 plot %>%
   ggplot(aes(x=Plant_Weight_g))+
-  geom_histogram(bins = 5)+
-  facet_grid(~Type_Barrier)
+  geom_histogram(bins = 5)
 
 
 #Stats for biomass plot in main text
-
-mod <- lm(Plant_Weight_g ~ Chamber:Type_Barrier, plot)
+mod <- lm(Plant_Weight_g ~ Chamber*Type_Barrier, plot)
 emmeans_results <- summary(emmeans(mod, pairwise ~ Chamber | Type_Barrier))
 
 emmeans_results
@@ -268,11 +257,7 @@ avg_root %>%
   ggplot(aes(y = abs, x = waves))+
   geom_line()+
   geom_vline(xintercept= 545)
-#Roots have high absorbance at 545, which creates too much noise for the modeling. 
-
-root_control %>%
-  ggplot(aes(y = abs, x = waves))+
-  geom_boxplot()
+#Roots have high absorbance at 545, which creates too much noise for the modeling.
 
 
 
@@ -442,7 +427,7 @@ plot_roots <- roots %>%
 
 #Testing if any differences among treatment in amount of dyed shoot material weighed out for this analysis. Answer: no detectable difference
 anova(lm(Weight_G~Type_Barrier, plot)) #p > 0.05
-iqr(plot$Weight_G) #0.0003425, update in text
+iqr(plot$Weight_G) #0.000332, update in text
 
 anova(lm(Weight_G~Type_Barrier, plot_roots)) #p > 0.05
 iqr(plot_roots$Weight_G) #0.0003575
@@ -458,7 +443,8 @@ iqr(plot_roots$Weight_G) #0.0003575
    summarize(n=n()) #Not missing any samples.
  
 
- model <- lm(preds_mod_s3*Dry_Weight_ug ~ Type_Barrier:Chamber, plot)
+ model <- lm(preds_mod_s3*Dry_Weight_ug ~ Type_Barrier*Chamber, plot)
+ summary(mod)
  pairwise_comparisons <- emmeans(model, pairwise ~ Chamber | Type_Barrier)
  
  emmeans_results <- summary(pairwise_comparisons)
@@ -469,7 +455,7 @@ iqr(plot_roots$Weight_G) #0.0003575
  contrasts_table <- as_tibble(summary(emmeans_results$contrasts))  
  
  #With the roots
- model_roots <- lm(preds_mod_r3*Dry_Weight_ug ~ Type_Barrier:Chamber, plot_roots)
+ model_roots <- lm(preds_mod_r3*Dry_Weight_ug ~ Type_Barrier*Chamber, plot_roots)
  pairwise_comparisons_r <- emmeans(model_roots, pairwise ~ Chamber | Type_Barrier)
  
  emmeans_results_r <- summary(pairwise_comparisons_r)

@@ -475,7 +475,7 @@ avg_root_abs<- dataset %>%
    ggplot(aes(y = abs, x = waves, color = samps))+
   geom_line()+
   theme(legend.position = "none", legend.title.position = "none")+
-  labs(x = "Wavelength", y = "Absorbance")+
+  labs(x = "Wavelength (nm)", y = "Absorbance")+
   geom_vline(xintercept= 545, linetype = "dashed")
 
 ggsave("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/avg_root_dye.png", avg_root_abs, dpi = 1000, width = 3, height = 2.5)
