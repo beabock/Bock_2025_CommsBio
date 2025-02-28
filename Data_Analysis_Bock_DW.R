@@ -107,7 +107,9 @@ supp_biomass <- combo_ds2 %>%
   geom_boxplot()+
   facet_grid(Compartment~., scales = "free", space = "free")+
   stat_n_text()+
-  scale_fill_manual(values = custom_col, name = "Compartment")+
+  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
+  scale_color_manual(values = custom_col, name = "Chamber")+
+  scale_fill_manual(values = custom_col, name = "Chamber")+
   geom_hline(yintercept = 0, linetype = "dashed")+
   scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic", "Diffusion1" = "Diffusion"))+
   labs(
@@ -155,7 +157,7 @@ significant_contrasts <- contrasts_table %>%
   filter(p.value < 0.05) %>%
   mutate(
     Type_Barrier = factor(Type_Barrier, levels = c("Experimental", "Impermeable", "Sterile")),
-    label = ifelse(p.value < 0.01, "**", "*") # Significance labels
+    label = ifelse(p.value < 0.01, "*", "*") # Significance labels
   )
 
 #This one is for the supplementary, lumped by plant, not separated out by aboveground and belowground.
@@ -173,6 +175,8 @@ biomass <- plot %>%
     fill = Chamber
   ))+
   geom_boxplot()+
+  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
+  scale_color_manual(values = custom_col, name = "Chamber")+
   geom_hline(yintercept = 0, linetype = "dashed")+
   scale_fill_manual(values = c("#D15A62", "#5AA7D1"), name = "Chamber")+
   scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic", "Diffusion1" = "Diffusion"))+
@@ -297,7 +301,7 @@ ds6 <- read_nanodrop("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Datasets/Na
                           samps == "156.3" ~ NA,
                           samps == "150" ~ NA,
                                   samps == "149.3" ~ "149", #6.2 is the second reading of 6 and does not appear to have the same issue
-                          samps == "150.3" ~ "150",
+                          samps == "150.3" ~ NA,
                                   .default = samps))%>%
   filter(!is.na(samps))
 
@@ -365,7 +369,7 @@ abs545 <- peaks %>%
 
 
 abs545 %>%
-  group_by(Experiment_Round, Type_Barrier)%>%
+  group_by(Experiment_Round, Type_Barrier, Box_Nr)%>%
   summarize(n=n())
 
 #Make a dataset of all the absorbances at 545 nm
@@ -427,14 +431,14 @@ plot_roots <- roots %>%
 
 #Testing if any differences among treatment in amount of dyed shoot material weighed out for this analysis. Answer: no detectable difference
 anova(lm(Weight_G~Type_Barrier, plot)) #p > 0.05
-iqr(plot$Weight_G) #0.000332, update in text
+iqr(plot$Weight_G) #0.0003425
 
 anova(lm(Weight_G~Type_Barrier, plot_roots)) #p > 0.05
 iqr(plot_roots$Weight_G) #0.0003575
 
 
  plot %>%
-   group_by(Experiment_Round, Type_Barrier)%>%
+   group_by(Experiment_Round, Type_Barrier, Box_Nr)%>%
    summarize(n=n())
 
  
@@ -478,8 +482,8 @@ iqr(plot_roots$Weight_G) #0.0003575
  significant_contrasts_dye <- contrasts_table %>%
    filter(p.value < 0.05) %>%
    mutate(label = case_when(
-     p.value < 0.001 ~ "***",
-     p.value < 0.01 ~ "**",
+     p.value < 0.001 ~ "*",
+     p.value < 0.01 ~ "*",
      p.value < 0.05 ~ "*"
    ))
  
@@ -494,6 +498,8 @@ iqr(plot_roots$Weight_G) #0.0003575
      y = "Dye in leaves (ug)",
      x = "Treatment"
    ) +
+   geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
+   scale_color_manual(values = custom_col, name = "Chamber")+
    scale_x_discrete(labels = c(
      "Experimental" = "Permeable",
      "Impermeable" = "Impermeable",
@@ -524,6 +530,8 @@ iqr(plot_roots$Weight_G) #0.0003575
    ggplot(aes(y = preds_mod_r3 * Dry_Weight_ug, x = Type_Barrier, fill = Chamber)) +
    geom_hline(yintercept = 0, linetype = "dashed") +
    geom_boxplot() +
+   geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
+   
    scale_fill_manual(values = custom_col) +
    labs(
      y = "Dye in roots (ug)",
@@ -557,6 +565,7 @@ dye_supp <- shoots %>%
   geom_boxplot()+
   scale_fill_manual(labels = c("Donor", "Receiver"), values = c("#D15A62", "#5AA7D1"),)+
   labs(y = "Dye in leaves (ug)", x = "Treatment")+
+  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
   scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic"))+
   theme(legend.title=element_blank(),
         #axis.title.x=element_blank(),
@@ -571,6 +580,7 @@ dye_supp_r <- roots %>%
   ggplot(aes(y=preds_mod_r3*Dry_Weight_g, x = Type_Barrier, fill = Chamber))+
   geom_hline(yintercept = 0,  linetype = "dashed")+
   geom_boxplot()+
+  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
   scale_fill_manual(labels = c("Donor", "Receiver"), values = c("#D15A62", "#5AA7D1"),)+
   labs(y = "Dye in roots (ug)", x = "Treatment")+
   scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic"))+
