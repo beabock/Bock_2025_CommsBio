@@ -1,7 +1,7 @@
 #B. Bock
 #21 June 2024
 #This file has all data import, data analysis, and plots for the Dark Web experiment/paper. 
-
+#4/17/25: Edits back from editor, making some figures for the main text regarding both rounds of experimentation
 
 library(readr) #read_csv
 library(readxl)
@@ -51,6 +51,30 @@ both %>%
 
 #Biomass + metadata, make sure it's in your working directory
 ds <- read_excel("Datasets/DWN_Data_2023.xlsx", sheet=2)
+
+
+#Calculate fresh:dry root weight ratio to estimate dry weights of the root subsamples used for scoring.
+ds <- ds%>%
+  mutate(A_roots_fd = if_else(
+    is.na(A_Root_Subsample_Wet_Weight_g),
+    A_Root_Wet_Weight_g / A_Root_Dry_Weight_g,
+    (A_Root_Wet_Weight_g - A_Root_Subsample_Wet_Weight_g) / A_Root_Dry_Weight_g),
+    B_roots_fd = if_else(
+      is.na(B_Root_Subsample_Wet_Weight_g),
+      B_Root_Wet_Weight_g / B_Root_Dry_Weight_g,
+      (B_Root_Wet_Weight_g - B_Root_Subsample_Wet_Weight_g) / B_Root_Dry_Weight_g
+  ))
+
+fd_ratio <- mean(rbind(ds$A_roots_fd, ds$B_roots_fd), na.rm = T)
+#Mean 
+
+test <- ds %>%
+  mutate(
+    estd_A_subsample_dry_g = A_Root_Subsample_Wet_Weight_g / fd_ratio,
+    estd_B_subsample_dry_g = B_Root_Subsample_Wet_Weight_g / fd_ratio,
+    A_Root_Dry_Weight_g = A_Root_Dry_Weight_g + coalesce(estd_A_subsample_dry_g, 0),
+    B_Root_Dry_Weight_g = B_Root_Dry_Weight_g + coalesce(estd_B_subsample_dry_g, 0)
+  )
 
 ds_shoots <- ds %>%
   pivot_longer(cols=c("A_Shoot_Dry_Weight_g","B_Shoot_Dry_Weight_g"), names_to = "Chamber", names_pattern = "(.)_Shoot_Dry_Weight_g", values_to = "Shoot_Dry_Weight_g")
@@ -105,7 +129,7 @@ supp_biomass <- combo_ds2 %>%
                               labels = c("Aboveground", "Belowground")))%>%
   ggplot(aes(y = Dry_Weight_g, x= Type_Barrier, fill = Chamber))+
   geom_boxplot()+
-  facet_grid(Compartment~., scales = "free", space = "free")+
+  facet_grid(Compartment~Experiment_Round, scales = "free", space = "free")+
   stat_n_text()+
   geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
   scale_color_manual(values = custom_col, name = "Chamber")+
@@ -124,13 +148,12 @@ ggsave("Comms Bio 2025/Pub_Figures/supp_biomass.png", supp_biomass, dpi = 1000, 
 
 #Adding aboveground and belowground masses in this ds
 plot <- combo_ds2 %>%
-  filter(!Type_Barrier %in% c("Barrierless", "Diffusion1"))%>% #Barrierless and Diffusion1 were treatments used as controls, but we did not make hypotheses based on these treatments, so they will go into the supplementary.
-  filter(Experiment_Round == 4)%>% #Round 4 is the experiment in the main text.
+  filter(!Type_Barrier %in% c("Barrierless", "Diffusion1", "Diffusion2", "Diffusion", "Diffusion3", "Oyster"))%>% #Barrierless and Diffusion1 were treatments used as controls, but we did not make hypotheses based on these treatments, so they will go into the supplementary.
+ # filter(Experiment_Round == 4)%>% #Round 4 is the experiment in the main text.
   group_by(Experiment_Round, Type_Barrier, Box_Nr, Chamber)%>%
   summarize(Plant_Weight_g = Dry_Weight_g[Compartment == "Root"]+
               Dry_Weight_g[Compartment == "Shoot"])%>%
   as.data.frame()
-
 
 
 #Normality
@@ -140,8 +163,9 @@ plot %>%
 
 
 #Stats for biomass plot in main text
-mod <- lm(Plant_Weight_g ~ Chamber*Type_Barrier, plot)
-emmeans_results <- summary(emmeans(mod, pairwise ~ Chamber | Type_Barrier))
+mod <- lm(Plant_Weight_g ~ Chamber * Type_Barrier + Experiment_Round, data = plot)
+
+emmeans_results <- emmeans(mod, pairwise ~ Chamber | Type_Barrier)
 
 emmeans_results
 
@@ -187,18 +211,7 @@ biomass <- plot %>%
         #axis.title.x=element_blank(),
         text = element_text(size = 11))+
    stat_n_text()+
-  geom_text(
-    data = significant_contrasts, 
-    aes(
-      x = Type_Barrier,
-      y = .225, # Adjust y-position for the labels
-      label = label
-    ),
-    inherit.aes = FALSE,
-    color = "black",
-    size = 8
-  )
-  # facet_grid(~Experiment_Round)
+   facet_grid(~Experiment_Round)
   
 biomass
 
@@ -256,12 +269,6 @@ setwd("Comms Bio 2025")
 #The "average root" and "average shoot" are readings using the same method as in this experiment, but the plants were not treated with dye. All other conditions are the same.
 avg_root <- read.csv("Datasets/avg_root.csv")
 avg_shoot <- read.csv("Datasets/avg_shoot.csv")
-
-avg_root %>%
-  ggplot(aes(y = abs, x = waves))+
-  geom_line()+
-  geom_vline(xintercept= 545)
-#Roots have high absorbance at 545, which creates too much noise for the modeling.
 
 
 
@@ -396,8 +403,17 @@ shoots %>%
 
 #mods and mods2
 
+preds <- predict(mod_s3, newdata = shoots, se.fit = TRUE)
+
 shoots <- shoots %>%
-  mutate(preds_mod_s3 = predict(mod_s3, newdata = shoots))
+  mutate(
+    preds_mod_s3 = preds$fit,
+    se_mod_s3 = preds$se.fit,
+    Dry_Weight_ug = Dry_Weight_g * 1e6,
+    dye_ug = preds_mod_s3 * Dry_Weight_ug,
+    dye_ug_lower = (preds_mod_s3 - 1.96 * se_mod_s3) * Dry_Weight_ug,
+    dye_ug_upper = (preds_mod_s3 + 1.96 * se_mod_s3) * Dry_Weight_ug
+  )
 
 roots <- roots %>%
   mutate(preds_mod_r3 = predict(mod_r3, newdata = roots))
@@ -419,17 +435,18 @@ roots <- roots %>%
 
 #Data included in the dye plot, only comparing receiver plants to each other
 plot <- shoots %>%
-  filter(Experiment_Round == 4)%>% 
-  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless"))%>%
+ # filter(Experiment_Round == 4)%>% 
+  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))%>%
   mutate(Dry_Weight_ug = Dry_Weight_g * 0.000001)
 
 plot_roots <- roots %>%
-  filter(Experiment_Round == 4)%>% 
-  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless"))%>%
+ # filter(Experiment_Round == 4)%>% 
+  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))%>%
   mutate(Dry_Weight_ug = Dry_Weight_g * 0.000001)
 
 
-#Testing if any differences among treatment in amount of dyed shoot material weighed out for this analysis. Answer: no detectable difference
+#Testing if any differences among treatment in amount of dyed shoot material weighed out for this analysis. Answer: no detectable difference in Round 4. If including round 5, may need to include that in the model. 
+
 anova(lm(Weight_G~Type_Barrier, plot)) #p > 0.05
 iqr(plot$Weight_G) #0.0003425
 
@@ -446,29 +463,113 @@ iqr(plot_roots$Weight_G) #0.0003575
    group_by(Experiment_Round, Type_Barrier)%>%
    summarize(n=n()) #Not missing any samples.
  
-
- model <- lm(preds_mod_s3*Dry_Weight_ug ~ Type_Barrier*Chamber, plot)
- summary(mod)
- pairwise_comparisons <- emmeans(model, pairwise ~ Chamber | Type_Barrier)
+library(purrr)
+ nested_models <- plot %>%
+   group_by(Experiment_Round) %>%
+   nest() %>%
+   mutate(
+     model = map(data, ~ lm(preds_mod_s3 * Dry_Weight_ug ~ Type_Barrier:Chamber, data = .x)),
+     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+     emmeans_summary = map(emmeans, ~ summary(.x))
+   )
  
- emmeans_results <- summary(pairwise_comparisons)
+ all_emmeans <- nested_models %>%
+   select(Experiment_Round, emmeans) %>%
+   mutate(emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans))) %>%
+   unnest(emmeans_df)
  
- emmeans_results
+ all_emmeans
+ #Remember to save the above to include output in manuscript
  
- emmeans_table <- as_tibble(summary(emmeans_results$emmeans)) 
- contrasts_table <- as_tibble(summary(emmeans_results$contrasts))  
+ n_labels <- plot %>%
+   group_by(Experiment_Round, Type_Barrier) %>%
+   summarise(n_half = n() / 2, .groups = "drop") %>%
+   mutate(label = paste0("n = ", n_half))
  
- #With the roots
- model_roots <- lm(preds_mod_r3*Dry_Weight_ug ~ Type_Barrier*Chamber, plot_roots)
- pairwise_comparisons_r <- emmeans(model_roots, pairwise ~ Chamber | Type_Barrier)
  
- emmeans_results_r <- summary(pairwise_comparisons_r)
+ #Best dye plot
  
- emmeans_results_r
+ ggplot(all_emmeans, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+   geom_hline(yintercept = 0, linetype = "dashed")+
+   geom_point(data = plot,
+               aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
+               width = 0.15, alpha = .4, size = 4, stroke = 1,
+              position = position_dodge(width = 0.5)) +
+   geom_point(position = position_dodge(width = 0.5), size = 3) +
+   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                 position = position_dodge(width = 0.5),
+                 width = 0.2) +
+   facet_wrap(~ Experiment_Round) +
+   geom_text(data = n_labels,
+             aes(x = Type_Barrier, y = 0, label = label),
+             color = "black",  # or a neutral color since it's not per chamber
+             vjust = 9, size = 3, inherit.aes = FALSE)+
+   scale_color_manual(values = custom_col, name = "Chamber")+
+   labs(
+     y = "Dye Content in Leaves (μg)",
+     title = "EMMeans by Chamber and Type_Barrier, Faceted by Experiment Round"
+   )+
+   scale_x_discrete(labels = c(
+     "Experimental" = "Permeable",
+     "Impermeable" = "Impermeable",
+     "Sterile" = "Axenic"
+   )) 
  
- emmeans_table_r <- as_tibble(summary(emmeans_results$emmeans)) 
- contrasts_table_r <- as_tibble(summary(emmeans_results$contrasts))  
  
+#Adjust the code here for saving the tables
+ 
+#Now same thing but With the roots
+ nested_models <- plot_roots %>%
+   group_by(Experiment_Round) %>%
+   nest() %>%
+   mutate(
+     model = map(data, ~ lm(preds_mod_r3 * Dry_Weight_ug ~ Type_Barrier:Chamber, data = .x)),
+     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+     emmeans_summary = map(emmeans, ~ summary(.x))
+   )
+ 
+ all_emmeans <- nested_models %>%
+   select(Experiment_Round, emmeans) %>%
+   mutate(emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans))) %>%
+   unnest(emmeans_df)
+ 
+ all_emmeans
+ 
+ 
+ n_labels <- plot %>%
+   group_by(Experiment_Round, Type_Barrier) %>%
+   summarise(n_half = n() / 2, .groups = "drop") %>%
+   mutate(label = paste0("n = ", n_half))
+ 
+ 
+ #Root dye plot
+ 
+ ggplot(all_emmeans, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+   geom_hline(yintercept = 0, linetype = "dashed")+
+   geom_point(data = plot,
+              aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
+              width = 0.15, alpha = .4, size = 4, stroke = 1,
+              position = position_dodge(width = 0.5)) +
+   geom_point(position = position_dodge(width = 0.5), size = 3) +
+   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                 position = position_dodge(width = 0.5),
+                 width = 0.2) +
+   facet_wrap(~ Experiment_Round) +
+   geom_text(data = n_labels,
+             aes(x = Type_Barrier, y = 0, label = label),
+             color = "black",  # or a neutral color since it's not per chamber
+             vjust = 9, size = 3, inherit.aes = FALSE)+
+   scale_color_manual(values = custom_col, name = "Chamber")+
+   labs(
+     y = "Dye Content in Roots (μg)",
+     title = "EMMeans by Chamber and Type_Barrier, Faceted by Experiment Round"
+   )+
+   scale_x_discrete(labels = c(
+     "Experimental" = "Permeable",
+     "Impermeable" = "Impermeable",
+     "Sterile" = "Axenic"
+   ))  
+ #Roots are super variable, not much to pull from this.
  
  # Write to CSV files
  write.csv(emmeans_table, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye.csv", row.names = FALSE)
@@ -486,69 +587,11 @@ iqr(plot_roots$Weight_G) #0.0003575
      p.value < 0.01 ~ "*",
      p.value < 0.05 ~ "*"
    ))
+ #Maybe come back and add the above onto the plots
+
  
- # Create the plot
- dye <- plot %>%
-   mutate(Type_Barrier = factor(Type_Barrier, levels = c("Experimental", "Impermeable", "Sterile")))%>%
-   ggplot(aes(y = preds_mod_s3 * Dry_Weight_ug, x = Type_Barrier, fill = Chamber)) +
-   geom_hline(yintercept = 0, linetype = "dashed") +
-   geom_boxplot() +
-   scale_fill_manual(values = custom_col) +
-   labs(
-     y = "Dye in leaves (ug)",
-     x = "Treatment"
-   ) +
-   geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
-   scale_color_manual(values = custom_col, name = "Chamber")+
-   scale_x_discrete(labels = c(
-     "Experimental" = "Permeable",
-     "Impermeable" = "Impermeable",
-     "Sterile" = "Axenic"
-   )) +
-   theme(
-     text = element_text(size = 12)
-   ) +
-   stat_n_text() +
-   geom_text(
-     data = significant_contrasts_dye,
-     aes(
-       x = Type_Barrier,
-       y = 7e-09,
-       label = label
-     ),
-     inherit.aes = FALSE,
-     color = "black",
-     size = 8
-   )
- 
- dye
 
 #850 x 500
- 
- dye_r <- plot_roots %>%
-   mutate(Type_Barrier = factor(Type_Barrier, levels = c("Experimental", "Impermeable", "Sterile")))%>%
-   ggplot(aes(y = preds_mod_r3 * Dry_Weight_ug, x = Type_Barrier, fill = Chamber)) +
-   geom_hline(yintercept = 0, linetype = "dashed") +
-   geom_boxplot() +
-   geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
-   
-   scale_fill_manual(values = custom_col) +
-   labs(
-     y = "Dye in roots (ug)",
-     x = "Treatment"
-   ) +
-   scale_x_discrete(labels = c(
-     "Experimental" = "Permeable",
-     "Impermeable" = "Impermeable",
-     "Sterile" = "Axenic"
-   )) +
-   theme(
-     text = element_text(size = 12)
-   ) +
-   stat_n_text()
-   
- 
- dye_r
  
  
 
@@ -559,21 +602,41 @@ ggsave("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figure
 ggsave("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/dye_roots.png", dye_r, dpi = 1000, width = 5.5, height = 3.5)
 
 dye_supp <- shoots %>%
-  mutate(Dry_Weight_ug = Dry_Weight_g * 0.000001)%>%
-  ggplot(aes(y=preds_mod_s3*Dry_Weight_g, x = Type_Barrier, fill = Chamber))+
-  geom_hline(yintercept = 0,  linetype = "dashed")+
-  geom_boxplot()+
-  scale_fill_manual(labels = c("Donor", "Receiver"), values = c("#D15A62", "#5AA7D1"),)+
-  labs(y = "Dye in leaves (ug)", x = "Treatment")+
-  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
-  scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic"))+
-  theme(legend.title=element_blank(),
-        #axis.title.x=element_blank(),
-        text = element_text(size = 18))+
-  stat_n_text()
+  ggplot(aes(y = dye_ug, x = Type_Barrier, fill = Chamber)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(labels = c("Donor", "Receiver"), values = c("#D15A62", "#5AA7D1")) +
+  labs(y = "Dye in leaves (μg)", x = "Treatment") +
+  
+  # 🔽 Error bars
+  geom_errorbar(
+    aes(ymin = dye_ug_lower, ymax = dye_ug_upper),
+    position = position_dodge(width = 0.4),
+    width = 0.2,
+    color = "black"
+  ) +
+  
+  # Points
+  geom_point(
+    aes(fill = Chamber),
+    stroke = 0.5,
+    position = position_dodge(width = 0.4),
+    size = 2,
+    alpha = 0.7,
+    shape = 21,
+    color = "black"
+  ) +
+  
+  scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic")) +
+  theme(
+    legend.title = element_blank(),
+    text = element_text(size = 18)
+  ) +
+  stat_n_text() +
+  facet_grid(Experiment_Round ~ .)
 
-#1200 by 600, font 18
 dye_supp
+#Something is weird with units. Come back to this.
+
 
 dye_supp_r <- roots %>%
   mutate(Dry_Weight_ug = Dry_Weight_g * 0.000001)%>%
