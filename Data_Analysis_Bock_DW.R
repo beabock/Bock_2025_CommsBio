@@ -130,9 +130,9 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
-             width = 0.15, alpha = .4, size = 4, stroke = 1,
+             width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
-  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_point(position = position_dodge(width = 0.5), size = 5) +
   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
@@ -140,7 +140,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_text(data = n_labels,
             aes(x = Type_Barrier, y = -0.05, label = label),
             color = "black", 
-            size = 2.5, inherit.aes = FALSE)+
+           inherit.aes = FALSE)+
   geom_text(
     data = significant_contrasts,
     aes(x = Type_Barrier, y = 0.155, label = label),  # see note below
@@ -157,7 +157,9 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
     "Experimental" = "Permeable",
     "Impermeable" = "Impermeable",
     "Sterile" = "Axenic"
-  )) 
+  )) +
+  theme(
+    text = element_text(size = 16))
 
 ggsave(
   "Comms Bio 2025/Pub_Figures/biomass_main.png",
@@ -240,9 +242,9 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
-             width = 0.15, alpha = .4, size = 4, stroke = 1,
+             width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
-  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_point(position = position_dodge(width = 0.5), size = 5) +
   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
@@ -250,7 +252,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_text(data = n_labels,
             aes(x = Type_Barrier, y = -0.03, label = label),
             color = "black", 
-            size = 2.5, inherit.aes = FALSE)+
+            inherit.aes = FALSE)+
   # geom_text(
   #   data = significant_contrasts,
   #   aes(x = Type_Barrier, y = 0.225, label = label),  # see note below
@@ -269,7 +271,9 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
     "Sterile" = "Axenic"
   )) + theme(
     axis.text.x = element_text(angle = 45, hjust = 1)
-  )
+  )+
+  theme(
+    text = element_text(size = 16))
 
 ggsave(
   "Comms Bio 2025/Pub_Figures/biomass_supp.png",
@@ -449,14 +453,15 @@ all_emmeans <- nested_models %>%
    )
  
  #Best dye plot
+
  
  ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
    geom_hline(yintercept = 0, linetype = "dashed")+
    geom_point(data = plot,
                aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
-               width = 0.15, alpha = .4, size = 4, stroke = 1,
+               width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
               position = position_dodge(width = 0.5)) +
-   geom_point(position = position_dodge(width = 0.5), size = 3) +
+   geom_point(position = position_dodge(width = 0.5), size = 5) +
    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
                  position = position_dodge(width = 0.5),
                  width = 0.2) +
@@ -464,7 +469,7 @@ all_emmeans <- nested_models %>%
    geom_text(data = n_labels,
              aes(x = Type_Barrier, y = -2000, label = label),
              color = "black", 
-             size = 2.5, inherit.aes = FALSE)+
+             inherit.aes = FALSE)+
    geom_text(
      data = significant_contrasts,
      aes(x = Type_Barrier, y = 6500, label = label),  # see note below
@@ -480,7 +485,9 @@ all_emmeans <- nested_models %>%
      "Experimental" = "Permeable",
      "Impermeable" = "Impermeable",
      "Sterile" = "Axenic"
-   )) 
+   )) +
+   theme(
+     text = element_text(size = 16))
  
  ggsave(
    "Comms Bio 2025/Pub_Figures/dye_leaves_main.png",
@@ -542,15 +549,15 @@ significant_contrasts <- all_contrasts_long %>%
     )
   )
 
-#Best dye plot
+#Dye shoots supp
 
 ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
-             width = 0.15, alpha = .4, size = 4, stroke = 1,
+             width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
-  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_point(position = position_dodge(width = 0.5), size = 5) +
   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
@@ -558,7 +565,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_text(data = n_labels,
             aes(x = Type_Barrier, y = -2500, label = label),
             color = "black", 
-            size = 2.5, inherit.aes = FALSE)+
+            inherit.aes = FALSE)+
   # geom_text(
   #   data = significant_contrasts,
   #   aes(x = Type_Barrier, y = 8000, label = label),  # see note below
@@ -576,7 +583,9 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
     "Sterile" = "Axenic"
   )) + theme(
     axis.text.x = element_text(angle = 45, hjust = 1)
-  )
+  )+
+  theme(
+    text = element_text(size = 16))
 
 ggsave(
   "Comms Bio 2025/Pub_Figures/dye_leaves_supp.png",
@@ -639,9 +648,9 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot_roots,
              aes(x = Type_Barrier, y = preds_mod_r3*Dry_Weight_ug, color = Chamber), shape = 4,
-             width = 0.15, alpha = .4, size = 4, stroke = 1,
+             width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
-  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_point(position = position_dodge(width = 0.5), size = 5) +
   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
@@ -649,7 +658,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_text(data = n_labels,
             aes(x = Type_Barrier, y = -500, label = label),
             color = "black", 
-            size = 2.5, inherit.aes = FALSE)+
+            inherit.aes = FALSE)+
   # geom_text(
   #   data = significant_contrasts,
   #   aes(x = Type_Barrier, y = 1000, label = label),  # see note below
@@ -667,7 +676,9 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
     "Sterile" = "Axenic"
   )) + theme(
     axis.text.x = element_text(angle = 45, hjust = 1)
-  )
+  )+
+  theme(
+    text = element_text(size = 16))
 
 
 ggsave(
