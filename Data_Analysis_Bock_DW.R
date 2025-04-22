@@ -56,41 +56,21 @@ setwd("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web")
 
 # Biomass Plot ------------------------------------------------------------
 
-#Supplementary biomass plot, with all data in it, separated out by aboveground and belowground parts of plants. 
 
-#Note to self: Should I plot the emmeans like i do with the dye below?
+#Main plot
 
-combo_ds2 <- read.csv(ds_biomass_long)
+combo_ds2 <- read.csv("Datasets/biomass_ds_long.csv")
 
-supp_biomass <- combo_ds2 %>%
-  mutate(Compartment = factor(Compartment, levels = c("Shoot", "Root"), 
-                              labels = c("Aboveground", "Belowground")))%>%
-  ggplot(aes(y = Dry_Weight_g, x= Type_Barrier, fill = Chamber))+
-  geom_boxplot()+
-  facet_grid(Compartment~Experiment_Round, scales = "free", space = "free")+
-  stat_n_text()+
-  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
-  scale_color_manual(values = custom_col, name = "Chamber")+
-  scale_fill_manual(values = custom_col, name = "Chamber")+
-  geom_hline(yintercept = 0, linetype = "dashed")+
-  scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic", "Diffusion1" = "Diffusion"))+
-  labs(
-    x = "Treatment", 
-    y = "Dry Mass (g)")+
-  theme(text = element_text(size = 18))+
-  stat_n_text()
+desired_order <- c("Experimental", "Impermeable", "Sterile")
 
-supp_biomass
-
-ggsave("Comms Bio 2025/Pub_Figures/supp_biomass.png", supp_biomass, dpi = 1000, width = 13, height = 6)
-
-#Adding aboveground and belowground masses in this ds
 plot <- combo_ds2 %>%
-  filter(!Type_Barrier %in% c("Barrierless", "Diffusion1", "Diffusion2", "Diffusion", "Diffusion3", "Oyster"))%>% #Barrierless and Diffusion1 were treatments used as controls, but we did not make hypotheses based on these treatments, so they will go into the supplementary.
- # filter(Experiment_Round == 4)%>% #Round 4 is the experiment in the main text.
+  filter(Experiment_Round != "Preliminary")%>%
+  filter(!Type_Barrier %in% c("Barrierless", "Diffusion1", "Diffusion2", "Diffusion", "Diffusion3", "Oyster"))%>% 
   group_by(Experiment_Round, Type_Barrier, Box_Nr, Chamber)%>%
   summarize(Plant_Weight_g = Dry_Weight_g[Compartment == "Root"]+
               Dry_Weight_g[Compartment == "Shoot"])%>%
+  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order),
+         Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")))%>%
   as.data.frame()
 
 
@@ -101,84 +81,203 @@ plot %>%
 #Somewhat normal.
 
 
-#Stats for biomass plot in main text
-mod <- lm(Plant_Weight_g ~ Chamber * Type_Barrier + Experiment_Round, data = plot)
+nested_models <- plot %>%
+  group_by(Experiment_Round) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(Plant_Weight_g ~Type_Barrier:Chamber, data = .x)),
+    emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+    emmeans_summary = map(emmeans, ~ summary(.x))
+  )
 
-emmeans_results <- emmeans(mod, pairwise ~ Chamber | Type_Barrier)
+all_emmeans <- nested_models %>%
+  select(Experiment_Round, emmeans) %>%
+  mutate(
+    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
+    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+  )
 
-emmeans_results
+all_emmeans_long <- all_emmeans %>%
+  unnest(emmeans_df)%>%
+  select(-emmeans,-contrast_df)
 
-emmeans_table <- as_tibble(summary(emmeans_results$emmeans)) 
-contrasts_table <- as_tibble(summary(emmeans_results$contrasts))  
+all_contrasts_long <- all_emmeans %>%
+  unnest(contrast_df)%>%
+  select(-emmeans,-emmeans_df)
 
-# Write to CSV files
-write.csv(emmeans_table, "Comms Bio 2025/Pub_Figures/emmeans_table_biomass.csv", row.names = FALSE)
-write.csv(contrasts_table, "Comms Bio 2025/Pub_Figures/contrasts_table_biomass.csv", row.names = FALSE)
+write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_biomass.csv", row.names = FALSE)
+write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_biomass.csv", row.names = FALSE)
 
 
-significant_contrasts <- contrasts_table %>%
+n_labels <- plot %>%
+  group_by(Experiment_Round, Type_Barrier) %>%
+  summarise(n_half = n() / 2, .groups = "drop") %>%
+  mutate(label = paste0("n = ", n_half))
+
+significant_contrasts <- all_contrasts_long %>%
   filter(p.value < 0.05) %>%
   mutate(
     Type_Barrier = factor(Type_Barrier, levels = c("Experimental", "Impermeable", "Sterile")),
-    label = ifelse(p.value < 0.01, "*", "*") # Significance labels
+    label = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*"
+    )
   )
 
-#This one is for the supplementary, lumped by plant, not separated out by aboveground and belowground.
-# plot_supp <- combo_ds2 %>%
-#   group_by(Experiment_Round, Type_Barrier, Box_Nr, Chamber)%>%
-#   summarize(Plant_Weight_g = Dry_Weight_g[Compartment == "Root"]+
-#               Dry_Weight_g[Compartment == "Shoot"]) 
 
-
-biomass <- plot %>%
-  mutate(Type_Barrier = factor(Type_Barrier, levels = c("Experimental", "Impermeable", "Sterile")))%>%
-  ggplot(aes(
-    x= Type_Barrier,
-    y = Plant_Weight_g,
-    fill = Chamber
-  ))+
-  geom_boxplot()+
-  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
-  scale_color_manual(values = custom_col, name = "Chamber")+
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
-  scale_fill_manual(values = c("#D15A62", "#5AA7D1"), name = "Chamber")+
-  scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic", "Diffusion1" = "Diffusion"))+
-  labs(
-    x = "Treatment", 
-    y = "Total Plant Dry Mass (g)")+
-  theme(#legend.title=element_blank(),
-        #axis.title.x=element_blank(),
-        text = element_text(size = 11))+
-   stat_n_text()+
-   facet_grid(~Experiment_Round)
+  geom_point(data = plot,
+             aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
+             width = 0.15, alpha = .4, size = 4, stroke = 1,
+             position = position_dodge(width = 0.5)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                position = position_dodge(width = 0.5),
+                width = 0.2) +
+  facet_grid(Experiment_Round~., scales = "free_y") +
+  geom_text(data = n_labels,
+            aes(x = Type_Barrier, y = -0.05, label = label),
+            color = "black", 
+            size = 2.5, inherit.aes = FALSE)+
+  geom_text(
+    data = significant_contrasts,
+    aes(x = Type_Barrier, y = 0.155, label = label),  # see note below
+    color = "black",
+    size = 4,
+    position = position_dodge(width = 0.5),
+    inherit.aes = FALSE
+  )+
+  scale_color_manual(values = custom_col, name = "Chamber")+
+  labs(x = "Treatment",
+       y = "Plant Biomass (g)"
+  )+
+  scale_x_discrete(labels = c(
+    "Experimental" = "Permeable",
+    "Impermeable" = "Impermeable",
+    "Sterile" = "Axenic"
+  )) 
+
+ggsave(
+  "Comms Bio 2025/Pub_Figures/biomass_main.png",
+  width = 6.5, height = 5, units = "in", dpi = 600
+)
+
+
+
+
+
+#This one is for the supplementary.
+
+desired_order <- c("Experimental", "Impermeable", "Sterile","Oyster", "Barrierless", "Diffusion1", "Diffusion2", "Diffusion3")
+
+plot <- combo_ds2 %>%
+  filter(!is.na(Type_Barrier))%>%
+  filter(Experiment_Round != "Preliminary")%>%
+  group_by(Experiment_Round, Type_Barrier, Box_Nr, Chamber)%>%
+  summarize(Plant_Weight_g = Dry_Weight_g[Compartment == "Root"]+
+              Dry_Weight_g[Compartment == "Shoot"])%>%
+  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order),
+         Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")))%>%
+  as.data.frame()
+
+
+#Normality
+plot %>%
+  ggplot(aes(x=Plant_Weight_g))+
+  geom_histogram(bins = 5)
+#Somewhat normal.
+
+
+nested_models <- plot %>%
+  filter(!is.na(Type_Barrier))%>%
+  group_by(Experiment_Round) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(Plant_Weight_g ~Type_Barrier:Chamber, data = .x)),
+    emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+    emmeans_summary = map(emmeans, ~ summary(.x))
+  )
+
+all_emmeans <- nested_models %>%
+  select(Experiment_Round, emmeans) %>%
+  mutate(
+    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
+    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+  )
+
+all_emmeans_long <- all_emmeans %>%
+  unnest(emmeans_df)%>%
+  select(-emmeans,-contrast_df)
+
+all_contrasts_long <- all_emmeans %>%
+  unnest(contrast_df)%>%
+  select(-emmeans,-emmeans_df)
+
+write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_biomass_supp.csv", row.names = FALSE)
+write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_biomass_supp.csv", row.names = FALSE)
+
+
+n_labels <- plot %>%
+  group_by(Experiment_Round, Type_Barrier) %>%
+  summarise(n_half = n() / 2, .groups = "drop") %>%
+  mutate(label = paste0("n = ", n_half))
+
+significant_contrasts <- all_contrasts_long %>%
+  filter(p.value < 0.05) %>%
+  mutate(
+    label = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*"
+    )
+  )
   
-biomass
-
-ggsave("Comms Bio 2025/Pub_Figures/biomass.png", biomass, dpi = 600, width = 5, height = 4)
 
 
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_point(data = plot,
+             aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
+             width = 0.15, alpha = .4, size = 4, stroke = 1,
+             position = position_dodge(width = 0.5)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                position = position_dodge(width = 0.5),
+                width = 0.2) +
+  facet_grid(Experiment_Round~., scales = "free_y") +
+  geom_text(data = n_labels,
+            aes(x = Type_Barrier, y = -0.03, label = label),
+            color = "black", 
+            size = 2.5, inherit.aes = FALSE)+
+  # geom_text(
+  #   data = significant_contrasts,
+  #   aes(x = Type_Barrier, y = 0.225, label = label),  # see note below
+  #   color = "black",
+  #   size = 4,
+  #   position = position_dodge(width = 0.5),
+  #   inherit.aes = FALSE
+  # )+
+  scale_color_manual(values = custom_col, name = "Chamber")+
+  labs(x = "Treatment",
+       y = "Plant Biomass (g)"
+  )+
+  scale_x_discrete(labels = c(
+    "Experimental" = "Permeable",
+    "Impermeable" = "Impermeable",
+    "Sterile" = "Axenic"
+  )) + theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+ggsave(
+  "Comms Bio 2025/Pub_Figures/biomass_supp.png",
+  width = 6.5, height = 5, units = "in", dpi = 600
+)
 
 
-  #Not filtering for aboveground vs. belowground here
-# biomass_supp2 <- plot_supp %>%
-#   ggplot(aes(
-#     x= Type_Barrier,
-#     y = Plant_Weight_g,
-#     fill = Chamber
-#   ))+
-#   geom_boxplot()+
-#   scale_fill_manual(values = c("#D15A62", "#5AA7D1"))+
-#   scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic"))+
-#   labs(
-#       x = "Treatment", 
-#     y = "Plant Dry Mass (g)")+
-#   theme(legend.title=element_blank(),
-#         axis.title.x = element_blank(),
-#         text = element_text(size = 18))+
-#   stat_n_text()
-  
-# biomass_supp2
-
+#
 
 
 
@@ -188,7 +287,12 @@ ggsave("Comms Bio 2025/Pub_Figures/biomass.png", biomass, dpi = 600, width = 5, 
 
 #Import the datasets needed to build the model we will use later. These were obtained by taking spec readings of the supernatant of samples with a known amount of dye in them. 
 
-abs545 <- read.csv("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Datasets/abs_545.csv")
+setwd("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/")
+
+abs545 <- read.csv("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Datasets/abs_545.csv")%>%
+  mutate(Experiment_Round = factor(Experiment_Round,
+                            levels = c("Preliminary", "Main", "Follow-Up"))
+  )
 
 shoots <- abs545 %>%
   filter(Compartment == "Shoot")
@@ -196,11 +300,11 @@ shoots <- abs545 %>%
 roots <- abs545 %>%
   filter(Compartment == "Root")
 
-root_control <- read.csv("Comms Bio 2025/Datasets/roots_mod.csv")%>%
+root_control <- read.csv("Datasets/roots_mod.csv")%>%
   dplyr::select(!Weight_G)%>%
   rename(Weight_G = plant_g)
 
-shoot_control <- read.csv("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Datasets/shoots_mod.csv") %>%
+shoot_control <- read.csv("Datasets/shoots_mod.csv") %>%
   dplyr::select(!Weight_G)%>%
   rename(Weight_G = plant_g)
 
@@ -212,11 +316,11 @@ summary(mod_s3)
 mod_r3 <- lm(data = root_control, dye_ug ~ abs)
 summary(mod_r3)
 
-setwd("Comms Bio 2025")
-
-
 
 preds <- predict(mod_s3, newdata = shoots, se.fit = TRUE)
+
+
+desired_order <- c("Experimental", "Impermeable", "Sterile","Oyster", "Barrierless", "Diffusion1", "Diffusion2", "Diffusion3")
 
 shoots <- shoots %>%
   mutate(
@@ -226,11 +330,27 @@ shoots <- shoots %>%
     dye_ug = preds_mod_s3 * Dry_Weight_ug,
     dye_ug_lower = (preds_mod_s3 - 1.96 * se_mod_s3) * Dry_Weight_ug,
     dye_ug_upper = (preds_mod_s3 + 1.96 * se_mod_s3) * Dry_Weight_ug
-  )
+  )%>%
+  filter(Experiment_Round != "Preliminary")%>% #Throws an error later if I don't do this
+  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))
+
+
+preds_r <- predict(mod_r3, newdata = roots, se.fit = TRUE)
 
 roots <- roots %>%
-  mutate(preds_mod_r3 = predict(mod_r3, newdata = roots))
+  mutate(
+    preds_mod_r3 = preds_r$fit,
+    se_mod_r3 = preds_r$se.fit,
+    Dry_Weight_ug = Dry_Weight_g * 1e6,
+    dye_ug = preds_mod_r3 * Dry_Weight_ug,
+    dye_ug_lower = (preds_mod_r3 - 1.96 * se_mod_r3) * Dry_Weight_ug,
+    dye_ug_upper = (preds_mod_r3 + 1.96 * se_mod_r3) * Dry_Weight_ug
+  )%>%
+  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))%>%
+  filter(Experiment_Round != "Preliminary") #Throws an error later if I don't do this
 
+
+peaks <- read.csv("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Datasets/DW_NanoDrop_all.csv")
 
 
 
@@ -251,18 +371,16 @@ avg_abs <- peaks %>%
 
 #450x500 or so
 
-avg_abs
-
-
+#avg_abs
 
 
 #Data included in the dye plot, only comparing receiver plants to each other
 plot <- shoots %>%
- # filter(Experiment_Round == 4)%>% 
+  filter(Experiment_Round != "Preliminary")%>% 
   filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))
 
 plot_roots <- roots %>%
- # filter(Experiment_Round == 4)%>% 
+  filter(Experiment_Round != "Preliminary")%>% 
   filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))
 
 
@@ -284,9 +402,10 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
    group_by(Experiment_Round, Type_Barrier)%>%
    summarize(n=n()) #Not missing any samples.
  
-
+#Main dye plot for text, shoots
  
  nested_models <- plot %>%
+   filter(Experiment_Round != "Preliminary")%>% #Only one barrier type for prelim
    group_by(Experiment_Round) %>%
    nest() %>%
    mutate(
@@ -295,23 +414,43 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
      emmeans_summary = map(emmeans, ~ summary(.x))
    )
  
- all_emmeans <- nested_models %>%
+all_emmeans <- nested_models %>%
    select(Experiment_Round, emmeans) %>%
-   mutate(emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans))) %>%
-   unnest(emmeans_df)
+   mutate(
+     emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
+     contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+   )
  
- all_emmeans
- #Remember to save the above to include output in manuscript
+ all_emmeans_long <- all_emmeans %>%
+   unnest(emmeans_df)%>%
+   select(-emmeans,-contrast_df)
+ 
+ all_contrasts_long <- all_emmeans %>%
+   unnest(contrast_df)%>%
+   select(-emmeans,-emmeans_df)
+ 
+ write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_shoots.csv", row.names = FALSE)
+ write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_shoots.csv", row.names = FALSE)
+ 
  
  n_labels <- plot %>%
    group_by(Experiment_Round, Type_Barrier) %>%
    summarise(n_half = n() / 2, .groups = "drop") %>%
    mutate(label = paste0("n = ", n_half))
  
+ significant_contrasts <- all_contrasts_long %>%
+   filter(p.value < 0.05) %>%
+   mutate(
+     label = case_when(
+       p.value < 0.001 ~ "***",
+       p.value < 0.01 ~ "**",
+       p.value < 0.05 ~ "*"
+     )
+   )
  
  #Best dye plot
  
- ggplot(all_emmeans, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
    geom_hline(yintercept = 0, linetype = "dashed")+
    geom_point(data = plot,
                aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
@@ -321,15 +460,21 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
                  position = position_dodge(width = 0.5),
                  width = 0.2) +
-   facet_wrap(~ Experiment_Round) +
+   facet_grid(Experiment_Round~., scales = "free_y") +
    geom_text(data = n_labels,
-             aes(x = Type_Barrier, y = 0, label = label),
-             color = "black",  # or a neutral color since it's not per chamber
-             vjust = 9, size = 3, inherit.aes = FALSE)+
+             aes(x = Type_Barrier, y = -2000, label = label),
+             color = "black", 
+             size = 2.5, inherit.aes = FALSE)+
+   geom_text(
+     data = significant_contrasts,
+     aes(x = Type_Barrier, y = 6500, label = label),  # see note below
+     color = "black",
+     size = 4,
+     inherit.aes = FALSE
+   )+
    scale_color_manual(values = custom_col, name = "Chamber")+
-   labs(
-     y = "Dye Content in Leaves (μg)",
-     title = "EMMeans by Chamber and Type_Barrier, Faceted by Experiment Round"
+   labs(x = "Treatment",
+     y = "Dye Content in Leaves (μg)"
    )+
    scale_x_discrete(labels = c(
      "Experimental" = "Permeable",
@@ -337,95 +482,23 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
      "Sterile" = "Axenic"
    )) 
  
+ ggsave(
+   "Comms Bio 2025/Pub_Figures/dye_leaves_main.png",
+   width = 6.5, height = 5, units = "in", dpi = 600
+ )
  
 #Adjust the code here for saving the tables
  
-#Now same thing but With the roots
- nested_models <- plot_roots %>%
-   group_by(Experiment_Round) %>%
-   nest() %>%
-   mutate(
-     model = map(data, ~ lm(preds_mod_r3 * Dry_Weight_ug ~ Type_Barrier:Chamber, data = .x)),
-     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
-     emmeans_summary = map(emmeans, ~ summary(.x))
-   )
- 
- all_emmeans <- nested_models %>%
-   select(Experiment_Round, emmeans) %>%
-   mutate(emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans))) %>%
-   unnest(emmeans_df)
- 
- all_emmeans
- 
- 
- n_labels <- plot_roots %>%
-   group_by(Experiment_Round, Type_Barrier) %>%
-   summarise(n_half = n() / 2, .groups = "drop") %>%
-   mutate(label = paste0("n = ", n_half))
- 
- 
- #Root dye plot
- 
- ggplot(all_emmeans, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
-   geom_hline(yintercept = 0, linetype = "dashed")+
-   geom_point(data = plot_roots,
-              aes(x = Type_Barrier, y = preds_mod_r3*Dry_Weight_ug, color = Chamber), shape = 4,
-              width = 0.15, alpha = .4, size = 4, stroke = 1,
-              position = position_dodge(width = 0.5)) +
-   geom_point(position = position_dodge(width = 0.5), size = 3) +
-   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
-                 position = position_dodge(width = 0.5),
-                 width = 0.2) +
-   facet_wrap(~ Experiment_Round) +
-   geom_text(data = n_labels,
-             aes(x = Type_Barrier, y = 0, label = label),
-             color = "black",  # or a neutral color since it's not per chamber
-             vjust = 9, size = 3, inherit.aes = FALSE)+
-   scale_color_manual(values = custom_col, name = "Chamber")+
-   labs(
-     y = "Dye Content in Roots (μg)",
-     title = "EMMeans by Chamber and Type_Barrier, Faceted by Experiment Round"
-   )+
-   scale_x_discrete(labels = c(
-     "Experimental" = "Permeable",
-     "Impermeable" = "Impermeable",
-     "Sterile" = "Axenic"
-   ))  
- #Roots are super variable, not much to pull from this.
- 
- # Write to CSV files
- write.csv(emmeans_table, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye.csv", row.names = FALSE)
- write.csv(contrasts_table, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye.csv", row.names = FALSE)
- 
- write.csv(emmeans_table_r, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_roots.csv", row.names = FALSE)
- write.csv(contrasts_table_r, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_roots.csv", row.names = FALSE)
-
- 
- # Add significant contrasts
- significant_contrasts_dye <- contrasts_table %>%
-   filter(p.value < 0.05) %>%
-   mutate(label = case_when(
-     p.value < 0.001 ~ "*",
-     p.value < 0.01 ~ "*",
-     p.value < 0.05 ~ "*"
-   ))
- #Maybe come back and add the above onto the plots
 
  
 
-#850 x 500
- 
- 
+#Now let's do the same for the supplementary, so not excluding any treatments
 
-setwd("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures")
-
-ggsave("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/dye.png", dye, dpi = 1000, width = 5.5, height = 3.5)
-
-ggsave("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/dye_roots.png", dye_r, dpi = 1000, width = 5.5, height = 3.5)
-
-
+ plot <- shoots %>%
+   filter(Experiment_Round != "Preliminary")
 
 nested_models <-  shoots%>%
+  filter(Experiment_Round != "Preliminary")%>% #Still can't include this because no contrats available
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
@@ -435,19 +508,45 @@ nested_models <-  shoots%>%
   )
 
 
+all_emmeans <- nested_models %>%
+  select(Experiment_Round, emmeans) %>%
+  mutate(
+    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
+    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+  )
+
+all_emmeans_long <- all_emmeans %>%
+  unnest(emmeans_df)%>%
+  select(-emmeans,-contrast_df)
+
+all_contrasts_long <- all_emmeans %>%
+  unnest(contrast_df)%>%
+  select(-emmeans,-emmeans_df)
+
+write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_shoots_supp.csv", row.names = FALSE)
+write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_shoots_supp.csv", row.names = FALSE)
+
+
 n_labels <- shoots %>%
   group_by(Experiment_Round, Type_Barrier) %>%
   summarise(n_half = n() / 2, .groups = "drop") %>%
   mutate(label = paste0("n = ", n_half))
 
-all_emmeans <- nested_models %>%
-  select(Experiment_Round, emmeans) %>%
-  mutate(emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans))) %>%
-  unnest(emmeans_df)
+significant_contrasts <- all_contrasts_long %>%
+  filter(p.value < 0.05) %>%
+  mutate(
+    label = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*"
+    )
+  )
 
-dye_supp <- ggplot(all_emmeans, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+#Best dye plot
+
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
-  geom_point(data = shoots,
+  geom_point(data = plot,
              aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
              width = 0.15, alpha = .4, size = 4, stroke = 1,
              position = position_dodge(width = 0.5)) +
@@ -455,44 +554,124 @@ dye_supp <- ggplot(all_emmeans, aes(x = Type_Barrier, y = emmean, color = Chambe
   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
-  facet_wrap(~ Experiment_Round, labeller = labeller(Experiment_Round = function(x) paste("Experiment Round:", x)))+
+  facet_grid(Experiment_Round~., scales = "free_y") +
   geom_text(data = n_labels,
-            aes(x = Type_Barrier, y = 0, label = label),
-            color = "black",  # or a neutral color since it's not per chamber
-            vjust = 10.5, size = 3, inherit.aes = FALSE)+
+            aes(x = Type_Barrier, y = -2500, label = label),
+            color = "black", 
+            size = 2.5, inherit.aes = FALSE)+
+  # geom_text(
+  #   data = significant_contrasts,
+  #   aes(x = Type_Barrier, y = 8000, label = label),  # see note below
+  #   color = "black",
+  #   size = 4,
+  #   inherit.aes = FALSE
+  # )+
   scale_color_manual(values = custom_col, name = "Chamber")+
-  labs(
-    y = "Dye Content in Leaves (μg)",
-    title = "EMMeans by Chamber and Type_Barrier, Faceted by Experiment Round"
+  labs(x = "Treatment",
+       y = "Dye Content in Leaves (μg)"
   )+
   scale_x_discrete(labels = c(
     "Experimental" = "Permeable",
     "Impermeable" = "Impermeable",
     "Sterile" = "Axenic"
-  )) 
+  )) + theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
 
-dye_supp
+ggsave(
+  "Comms Bio 2025/Pub_Figures/dye_leaves_supp.png",
+  width = 6.5, height = 5, units = "in", dpi = 600
+)
+
+#Supp roots fig now
+
+plot_roots <- roots %>%
+  filter(Experiment_Round != "Preliminary")
+
+nested_models <-  roots%>%
+  filter(Experiment_Round != "Preliminary")%>% #Still can't include this because no contrats available
+  group_by(Experiment_Round) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(preds_mod_r3 * Dry_Weight_ug ~ Type_Barrier:Chamber, data = .x)),
+    emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+    emmeans_summary = map(emmeans, ~ summary(.x))
+  )
 
 
+all_emmeans <- nested_models %>%
+  select(Experiment_Round, emmeans) %>%
+  mutate(
+    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
+    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+  )
 
-dye_supp_r <- roots %>%
-  mutate(Dry_Weight_ug = Dry_Weight_g * 1e6)%>%
-  ggplot(aes(y=preds_mod_r3*Dry_Weight_g, x = Type_Barrier, fill = Chamber))+
-  geom_hline(yintercept = 0,  linetype = "dashed")+
-  geom_boxplot()+
-  geom_point(aes(fill = Chamber),stroke = 0.5, position = position_dodge(width = 0.4), size = 2, alpha = 0.7,shape = 21, color = "black")+
-  scale_fill_manual(labels = c("Donor", "Receiver"), values = c("#D15A62", "#5AA7D1"),)+
-  labs(y = "Dye in roots (ug)", x = "Treatment")+
-  scale_x_discrete(labels = c("Experimental" = "Permeable", "Impermeable" = "Impermeable", "Sterile" = "Axenic"))+
-  theme(legend.title=element_blank(),
-        #axis.title.x=element_blank(),
-        text = element_text(size = 18))+
-  stat_n_text()
+all_emmeans_long <- all_emmeans %>%
+  unnest(emmeans_df)%>%
+  select(-emmeans,-contrast_df)
+
+all_contrasts_long <- all_emmeans %>%
+  unnest(contrast_df)%>%
+  select(-emmeans,-emmeans_df)
+
+write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_roots_supp.csv", row.names = FALSE)
+write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_roots_supp.csv", row.names = FALSE)
 
 
-dye_supp_r
+n_labels <- roots %>%
+  group_by(Experiment_Round, Type_Barrier) %>%
+  summarise(n_half = n() / 2, .groups = "drop") %>%
+  mutate(label = paste0("n = ", n_half))
 
-ggsave("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/dye_supp.png", dye_supp, dpi = 1000, width = 14, height = 8)
+significant_contrasts <- all_contrasts_long %>%
+  filter(p.value < 0.05) %>%
+  mutate(
+    label = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*"
+    )
+  )
 
-ggsave("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/dye_supp_r.png", dye_supp_r, dpi = 1000, width = 14, height = 8)
+#Best dye plot
+
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_point(data = plot_roots,
+             aes(x = Type_Barrier, y = preds_mod_r3*Dry_Weight_ug, color = Chamber), shape = 4,
+             width = 0.15, alpha = .4, size = 4, stroke = 1,
+             position = position_dodge(width = 0.5)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                position = position_dodge(width = 0.5),
+                width = 0.2) +
+  facet_grid(Experiment_Round~., scales = "free_y") +
+  geom_text(data = n_labels,
+            aes(x = Type_Barrier, y = -500, label = label),
+            color = "black", 
+            size = 2.5, inherit.aes = FALSE)+
+  # geom_text(
+  #   data = significant_contrasts,
+  #   aes(x = Type_Barrier, y = 1000, label = label),  # see note below
+  #   color = "black",
+  #   size = 4,
+  #   inherit.aes = FALSE
+  # )+
+  scale_color_manual(values = custom_col, name = "Chamber")+
+  labs(x = "Treatment",
+       y = "Dye Content in Roots (μg)"
+  )+
+  scale_x_discrete(labels = c(
+    "Experimental" = "Permeable",
+    "Impermeable" = "Impermeable",
+    "Sterile" = "Axenic"
+  )) + theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+ggsave(
+  "Comms Bio 2025/Pub_Figures/dye_roots_supp.png",
+  width = 6.5, height = 5, units = "in", dpi = 600
+)
 

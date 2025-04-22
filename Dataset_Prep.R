@@ -65,7 +65,24 @@ ds_long <- ds %>%
                               "A" ~ "Donor",
                               "B" ~ "Receiver",
                               .default = Chamber))%>%
-  select(!contains(c("Root", "Shoot", "subsample")))
+  select(!contains(c("Root", "Shoot", "subsample")))%>%
+  mutate(Experiment_Round = recode(Experiment_Round,
+                                   `2` = "Preliminary",
+                                   `4` = "Main",
+                                   `5` = "Follow-Up"),
+         Experiment_Round = factor(Experiment_Round,
+                                   levels = c("Preliminary", "Main", "Follow-Up"))
+  )
+
+
+ds <- ds %>%
+  mutate(Experiment_Round = recode(Experiment_Round,
+                                   `2` = "Preliminary",
+                                   `4` = "Main",
+                                   `5` = "Follow-Up"),
+         Experiment_Round = factor(Experiment_Round,
+                                   levels = c("Preliminary", "Main", "Follow-Up"))
+  )
 
 write.csv(ds, "Datasets/biomass_ds_wide.csv")
 write.csv(ds_long, "Datasets/biomass_ds_long.csv")
