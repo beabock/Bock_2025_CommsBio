@@ -145,13 +145,13 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
     data = significant_contrasts,
     aes(x = Type_Barrier, y = 0.155, label = label),  # see note below
     color = "black",
-    size = 4,
+    size = 6,
     position = position_dodge(width = 0.5),
     inherit.aes = FALSE
   )+
   scale_color_manual(values = custom_col, name = "Chamber")+
   labs(x = "Treatment",
-       y = "Plant Biomass (g)"
+       y = "Plant Dry Biomass (g)"
   )+
   scale_x_discrete(labels = c(
     "Experimental" = "Permeable",
@@ -474,7 +474,7 @@ all_emmeans <- nested_models %>%
      data = significant_contrasts,
      aes(x = Type_Barrier, y = 6500, label = label),  # see note below
      color = "black",
-     size = 4,
+     size = 6,
      inherit.aes = FALSE
    )+
    scale_color_manual(values = custom_col, name = "Chamber")+
