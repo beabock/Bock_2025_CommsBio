@@ -13,6 +13,7 @@ library(tidyr) #separate function
 library(EnvStats) #For adding sample sizes to plots
 library(emmeans)
 library(purrr)
+library(broom)
 #library(multcomp)
 
 theme_set(theme_bw())
@@ -81,20 +82,40 @@ plot %>%
 #Somewhat normal.
 
 
-nested_models <- plot %>%
+nested_models_log <- plot %>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
-    model = map(data, ~ lm(Plant_Weight_g ~Type_Barrier:Chamber, data = .x)),
+    model = map(data, ~ lm(log(Plant_Weight_g) ~ Type_Barrier:Chamber, data = .x)),
     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
-    emmeans_summary = map(emmeans, ~ summary(.x))
+    
+    # Back-transformed emmeans and contrasts
+    emmeans_backtrans = map(emmeans, ~ summary(.x, type = "response")),
+    emmeans_summary_df = map(emmeans_backtrans, ~ as_tibble(.x$emmeans)),
+    contrast_summary_df = map(emmeans_backtrans, ~ as_tibble(.x$contrasts)),
+    
+    # Optional: diagnostics
+    model_aug = map(model, ~ broom::augment(.x)),
+    residuals = map(model_aug, ~ .x$.resid),
+    shapiro_test = map(residuals, ~ shapiro.test(.x))
   )
 
-all_emmeans <- nested_models %>%
+
+nested_models_log %>%
+  mutate(qq_plot = map2(residuals, Experiment_Round, ~
+                          ggplot(data.frame(resid = .x), aes(sample = resid)) +
+                          stat_qq() +
+                          stat_qq_line() +
+                          ggtitle(paste("QQ Plot -", .y)))
+  )%>%
+  pull(qq_plot) %>%
+  walk(print)
+
+all_emmeans <- nested_models_log %>%
   select(Experiment_Round, emmeans) %>%
   mutate(
-    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
-    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+    emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
+    contrast_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$contrasts))
   )
 
 all_emmeans_long <- all_emmeans %>%
@@ -126,7 +147,7 @@ significant_contrasts <- all_contrasts_long %>%
   )
 
 
-ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
@@ -192,21 +213,50 @@ plot %>%
 #Somewhat normal.
 
 
-nested_models <- plot %>%
-  filter(!is.na(Type_Barrier))%>%
+nested_models_log <- plot %>%
+  filter(!is.na(Type_Barrier)) %>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
-    model = map(data, ~ lm(Plant_Weight_g ~Type_Barrier:Chamber, data = .x)),
+    # Log-transformed model
+    model = map(data, ~ lm(log(Plant_Weight_g) ~ Type_Barrier:Chamber, data = .x)),
+    
+    # emmeans still works normally
     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
-    emmeans_summary = map(emmeans, ~ summary(.x))
+    
+    # Back-transformed emmeans and contrasts
+    emmeans_backtrans = map(emmeans, ~ summary(.x, type = "response")),
+    emmeans_summary_df = map(emmeans_backtrans, ~ as_tibble(.x$emmeans)),
+    contrast_summary_df = map(emmeans_backtrans, ~ as_tibble(.x$contrasts)),
+    
+    # Residual diagnostics
+    model_aug = map(model, ~ broom::augment(.x)),
+    residuals = map(model_aug, ~ .x$.resid),
+    shapiro_test = map(residuals, ~ shapiro.test(.x)),
+    
+    # QQ plot for residuals
+    qq_plot = map2(residuals, Experiment_Round, ~
+                     ggplot(data.frame(resid = .x), aes(sample = resid)) +
+                     stat_qq() +
+                     stat_qq_line() +
+                     ggtitle(paste("QQ Plot (log) -", .y))
+    )
   )
 
-all_emmeans <- nested_models %>%
+nested_models_log %>%
+  pull(qq_plot) %>%
+  walk(print)
+
+nested_models_log %>%
+  transmute(Experiment_Round,
+            shapiro_p = map_dbl(shapiro_test, ~ .x$p.value))
+#log trans fixed it.
+
+all_emmeans <- nested_models_log %>%
   select(Experiment_Round, emmeans) %>%
   mutate(
-    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
-    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+    emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
+    contrast_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$contrasts))
   )
 
 all_emmeans_long <- all_emmeans %>%
@@ -238,7 +288,7 @@ significant_contrasts <- all_contrasts_long %>%
   
 
 
-ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
@@ -314,12 +364,28 @@ shoot_control <- read.csv("Datasets/shoots_mod.csv") %>%
 
 #Shoots model 
 
+hist(shoot_control$dye_ug)
+
+length(shoot_control$samps)
+
 mod_s3 <- lm(data=shoot_control, dye_ug ~ abs)
 summary(mod_s3)
+
+ggplot(data.frame(residuals = residuals(mod_s3)), aes(sample = residuals)) +
+  stat_qq() +
+  stat_qq_line()
+#Not bad.
+ggsave("Comms Bio 2025/Pub_Figures/qqplot_shoot_controlmodel.png", width = 3, height = 3, dpi = 600)
+
 
 mod_r3 <- lm(data = root_control, dye_ug ~ abs)
 summary(mod_r3)
 
+ggplot(data.frame(residuals = residuals(mod_r3)), aes(sample = residuals)) +
+  stat_qq() +
+  stat_qq_line()
+#Not awesome.
+ggsave("Comms Bio 2025/Pub_Figures/qqplot_root_controlmodel.png", width = 3, height = 3, dpi = 600)
 
 preds <- predict(mod_s3, newdata = shoots, se.fit = TRUE)
 
@@ -408,21 +474,50 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
  
 #Main dye plot for text, shoots
  
+ ggplot(plot, aes(x = (preds_mod_s3)))+
+   geom_histogram()+
+   facet_grid(~Experiment_Round)
+ 
+ #Looks like a gamma, but need to be able to have 0s....
+ library(glmmTMB)
+ 
+ 
+ 
  nested_models <- plot %>%
-   filter(Experiment_Round != "Preliminary")%>% #Only one barrier type for prelim
+   filter(Experiment_Round != "Preliminary") %>%  # Exclude non-replicated group
    group_by(Experiment_Round) %>%
    nest() %>%
    mutate(
-     model = map(data, ~ lm(preds_mod_s3 * Dry_Weight_ug ~ Type_Barrier:Chamber, data = .x)),
+     model = map(data, ~ lm(log1p(preds_mod_s3 * Dry_Weight_ug) ~ Type_Barrier:Chamber, data = .x)),
      emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
-     emmeans_summary = map(emmeans, ~ summary(.x))
+     emmeans_summary = map(emmeans, ~ summary(.x, type = "response")),
+     
+     # Extract model diagnostics
+     model_aug = map(model, ~ augment(.x)),
+     residuals = map(model_aug, ~ .x$.resid),
+     shapiro_test = map(residuals, ~ shapiro.test(.x)),
+     
+     # QQ plot
+     qq_plot = map2(residuals, Experiment_Round, ~
+                      ggplot(data.frame(resid = .x), aes(sample = resid)) +
+                      stat_qq() +
+                      stat_qq_line() +
+                      ggtitle(paste("QQ Plot -", .y)))
    )
+   
+ nested_models$shapiro_test
  
-all_emmeans <- nested_models %>%
+ nested_models %>%
+   pull(qq_plot) %>%
+   walk(print)
+ 
+
+ all_emmeans <- nested_models %>%
    select(Experiment_Round, emmeans) %>%
    mutate(
-     emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
-     contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+     # Extracting EMMs and contrasts for Gamma GLM with back-transformation to response scale
+     emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
+     contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x, type = "response"))))
    )
  
  all_emmeans_long <- all_emmeans %>%
@@ -455,7 +550,7 @@ all_emmeans <- nested_models %>%
  #Best dye plot
 
  
- ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
    geom_hline(yintercept = 0, linetype = "dashed")+
    geom_point(data = plot,
                aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
@@ -468,7 +563,7 @@ all_emmeans <- nested_models %>%
    facet_grid(Experiment_Round~., scales = "free_y") +
    geom_text(data = n_labels,
              aes(x = Type_Barrier, y = -2000, label = label),
-             color = "black", 
+             color = "black",
              inherit.aes = FALSE)+
    geom_text(
      data = significant_contrasts,
@@ -494,8 +589,7 @@ all_emmeans <- nested_models %>%
    width = 6.5, height = 5, units = "in", dpi = 600
  )
  
-#Adjust the code here for saving the tables
- 
+
 
  
 
@@ -504,23 +598,41 @@ all_emmeans <- nested_models %>%
  plot <- shoots %>%
    filter(Experiment_Round != "Preliminary")
 
-nested_models <-  shoots%>%
-  filter(Experiment_Round != "Preliminary")%>% #Still can't include this because no contrats available
-  group_by(Experiment_Round) %>%
-  nest() %>%
-  mutate(
-    model = map(data, ~ lm(preds_mod_s3 * Dry_Weight_ug ~ Type_Barrier:Chamber, data = .x)),
-    emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
-    emmeans_summary = map(emmeans, ~ summary(.x))
-  )
-
-
-all_emmeans <- nested_models %>%
-  select(Experiment_Round, emmeans) %>%
-  mutate(
-    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
-    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
-  )
+ nested_models <- plot %>%
+   group_by(Experiment_Round) %>%
+   nest() %>%
+   mutate(
+     model = map(data, ~ lm(log1p(preds_mod_s3 * Dry_Weight_ug) ~ Type_Barrier:Chamber, data = .x)),
+     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+     emmeans_summary = map(emmeans, ~ summary(.x, type = "response")),
+     
+     # Extract model diagnostics
+     model_aug = map(model, ~ augment(.x)),
+     residuals = map(model_aug, ~ .x$.resid),
+     shapiro_test = map(residuals, ~ shapiro.test(.x)),
+     
+     # QQ plot
+     qq_plot = map2(residuals, Experiment_Round, ~
+                      ggplot(data.frame(resid = .x), aes(sample = resid)) +
+                      stat_qq() +
+                      stat_qq_line() +
+                      ggtitle(paste("QQ Plot -", .y)))
+   )
+ 
+ nested_models$shapiro_test #Good
+ 
+ nested_models %>%
+   pull(qq_plot) %>%
+   walk(print)
+ 
+ 
+ all_emmeans <- nested_models %>%
+   select(Experiment_Round, emmeans) %>%
+   mutate(
+     # Extracting EMMs and contrasts for Gamma GLM with back-transformation to response scale
+     emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
+     contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x, type = "response"))))
+   )
 
 all_emmeans_long <- all_emmeans %>%
   unnest(emmeans_df)%>%
@@ -551,7 +663,7 @@ significant_contrasts <- all_contrasts_long %>%
 
 #Dye shoots supp
 
-ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
@@ -594,25 +706,41 @@ ggsave(
 
 #Supp roots fig now
 
-plot_roots <- roots %>%
-  filter(Experiment_Round != "Preliminary")
-
-nested_models <-  roots%>%
-  filter(Experiment_Round != "Preliminary")%>% #Still can't include this because no contrats available
+nested_models <- roots%>%
+  filter(Experiment_Round != "Preliminary")%>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
-    model = map(data, ~ lm(preds_mod_r3 * Dry_Weight_ug ~ Type_Barrier:Chamber, data = .x)),
+    model = map(data, ~ lm(log1p(preds_mod_r3 * Dry_Weight_ug) ~ Type_Barrier:Chamber, data = .x)),
     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
-    emmeans_summary = map(emmeans, ~ summary(.x))
+    emmeans_summary = map(emmeans, ~ summary(.x, type = "response")),
+    
+    # Extract model diagnostics
+    model_aug = map(model, ~ augment(.x)),
+    residuals = map(model_aug, ~ .x$.resid),
+    shapiro_test = map(residuals, ~ shapiro.test(.x)),
+    
+    # QQ plot
+    qq_plot = map2(residuals, Experiment_Round, ~
+                     ggplot(data.frame(resid = .x), aes(sample = resid)) +
+                     stat_qq() +
+                     stat_qq_line() +
+                     ggtitle(paste("QQ Plot -", .y)))
   )
+
+nested_models$shapiro_test
+
+nested_models %>%
+  pull(qq_plot) %>%
+  walk(print)
 
 
 all_emmeans <- nested_models %>%
   select(Experiment_Round, emmeans) %>%
   mutate(
-    emmeans_df = map(emmeans, ~ as_tibble(summary(.x)$emmeans)),
-    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x))))
+    # Extracting EMMs and contrasts for Gamma GLM with back-transformation to response scale
+    emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
+    contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x, type = "response"))))
   )
 
 all_emmeans_long <- all_emmeans %>%
@@ -644,7 +772,7 @@ significant_contrasts <- all_contrasts_long %>%
 
 #Best dye plot
 
-ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot_roots,
              aes(x = Type_Barrier, y = preds_mod_r3*Dry_Weight_ug, color = Chamber), shape = 4,
