@@ -14,6 +14,7 @@ library(EnvStats) #For adding sample sizes to plots
 library(emmeans)
 library(purrr)
 library(broom)
+library(lmtest)
 #library(multcomp)
 
 theme_set(theme_bw())
@@ -86,7 +87,7 @@ nested_models_log <- plot %>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
-    model = map(data, ~ lm(log(Plant_Weight_g) ~ Type_Barrier:Chamber, data = .x)),
+    model = map(data, ~ glm(Plant_Weight_g ~ Type_Barrier:Chamber, family = quasipoisson(link = "log"), data = .x)),
     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
     
     # Back-transformed emmeans and contrasts
@@ -97,19 +98,43 @@ nested_models_log <- plot %>%
     # Optional: diagnostics
     model_aug = map(model, ~ broom::augment(.x)),
     residuals = map(model_aug, ~ .x$.resid),
-    shapiro_test = map(residuals, ~ shapiro.test(.x))
+    fitted = map(model_aug, ~ .x$.fitted),
+    
+    shapiro_test = map(residuals, ~ shapiro.test(.x)),
+    
+    # Breusch-Pagan test for heteroscedasticity
+    bp_test = map(model, ~ bptest(.x)),
+    
+    # QQ plot for residuals
+    qq_plot = map2(residuals, Experiment_Round, ~
+                     ggplot(data.frame(resid = .x), aes(sample = resid)) +
+                     stat_qq() +
+                     stat_qq_line() +
+                     ggtitle(paste("QQ Plot (log) -", .y))
+    ),
+    resid_fit_plot = map2(residuals, fitted, ~
+                            ggplot(data.frame(fitted = .y, resid = .x), aes(x = fitted, y = resid)) +
+                            geom_point(alpha = 0.6) +
+                            geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+                            ggtitle("Residuals vs Fitted") +
+                            theme_minimal()
+    )
   )
 
 
 nested_models_log %>%
-  mutate(qq_plot = map2(residuals, Experiment_Round, ~
-                          ggplot(data.frame(resid = .x), aes(sample = resid)) +
-                          stat_qq() +
-                          stat_qq_line() +
-                          ggtitle(paste("QQ Plot -", .y)))
-  )%>%
   pull(qq_plot) %>%
   walk(print)
+
+nested_models_log %>%
+  pull(resid_fit_plot) %>%
+  walk(print)
+#Looks fine.
+
+nested_models_log$bp_test
+
+nested_models_log$shapiro_test
+#Doesnt pass, but quasipoisson doesnt require normality so we're okay.
 
 all_emmeans <- nested_models_log %>%
   select(Experiment_Round, emmeans) %>%
@@ -147,14 +172,14 @@ significant_contrasts <- all_contrasts_long %>%
   )
 
 
-ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = rate, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
              width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
   geom_point(position = position_dodge(width = 0.5), size = 5) +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
   facet_grid(Experiment_Round~., scales = "free_y") +
@@ -219,7 +244,7 @@ nested_models_log <- plot %>%
   nest() %>%
   mutate(
     # Log-transformed model
-    model = map(data, ~ lm(log(Plant_Weight_g) ~ Type_Barrier:Chamber, data = .x)),
+    model = map(data, ~ glm(Plant_Weight_g ~ Type_Barrier:Chamber, family = quasipoisson(link = "log"), data = .x)),
     
     # emmeans still works normally
     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
@@ -232,25 +257,43 @@ nested_models_log <- plot %>%
     # Residual diagnostics
     model_aug = map(model, ~ broom::augment(.x)),
     residuals = map(model_aug, ~ .x$.resid),
+    fitted = map(model_aug, ~ .x$.fitted),
+    
+    # Shapiro-Wilk test for normality
     shapiro_test = map(residuals, ~ shapiro.test(.x)),
     
+    bp_test = map(model, ~ bptest(.x)),
     # QQ plot for residuals
     qq_plot = map2(residuals, Experiment_Round, ~
                      ggplot(data.frame(resid = .x), aes(sample = resid)) +
                      stat_qq() +
                      stat_qq_line() +
                      ggtitle(paste("QQ Plot (log) -", .y))
+    ),
+    
+    # Residuals vs Fitted plot
+    resid_fit_plot = map2(residuals, fitted, ~
+                            ggplot(data.frame(fitted = .y, resid = .x), aes(x = fitted, y = resid)) +
+                            geom_point(alpha = 0.6) +
+                            geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+                            ggtitle("Residuals vs Fitted")
     )
   )
+
 
 nested_models_log %>%
   pull(qq_plot) %>%
   walk(print)
 
 nested_models_log %>%
+  pull(resid_fit_plot) %>%
+  walk(print)
+
+nested_models_log %>%
   transmute(Experiment_Round,
-            shapiro_p = map_dbl(shapiro_test, ~ .x$p.value))
-#log trans fixed it.
+            shapiro_p = map_dbl(shapiro_test, ~ .x$p.value),
+            bp_p = map_dbl(bp_test, ~ .x$p.value))
+#Passes.
 
 all_emmeans <- nested_models_log %>%
   select(Experiment_Round, emmeans) %>%
@@ -288,14 +331,14 @@ significant_contrasts <- all_contrasts_long %>%
   
 
 
-ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
+ggplot(all_emmeans_long, aes(x = Type_Barrier, y = rate, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
   geom_point(data = plot,
              aes(x = Type_Barrier, y = Plant_Weight_g, color = Chamber), shape = 4,
              width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
   geom_point(position = position_dodge(width = 0.5), size = 5) +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
   facet_grid(Experiment_Round~., scales = "free_y") +
@@ -371,10 +414,18 @@ length(shoot_control$samps)
 mod_s3 <- lm(data=shoot_control, dye_ug ~ abs)
 summary(mod_s3)
 
+bptest(mod_s3) #Fine.
+
+shapiro.test(mod_s3$residuals) #Does not pass.
+
+hist(mod_s3$residuals)
 ggplot(data.frame(residuals = residuals(mod_s3)), aes(sample = residuals)) +
   stat_qq() +
   stat_qq_line()
-#Not bad.
+#Actually fine. Shapiro-wilk p = 0.017, but the plot looks good.
+
+
+
 ggsave("Comms Bio 2025/Pub_Figures/qqplot_shoot_controlmodel.png", width = 3, height = 3, dpi = 600)
 
 
@@ -385,39 +436,27 @@ ggplot(data.frame(residuals = residuals(mod_r3)), aes(sample = residuals)) +
   stat_qq() +
   stat_qq_line()
 #Not awesome.
-ggsave("Comms Bio 2025/Pub_Figures/qqplot_root_controlmodel.png", width = 3, height = 3, dpi = 600)
 
-preds <- predict(mod_s3, newdata = shoots, se.fit = TRUE)
+ggsave("Comms Bio 2025/Pub_Figures/qqplot_root_controlmodel.png", width = 3, height = 3, dpi = 600)
 
 
 desired_order <- c("Experimental", "Impermeable", "Sterile","Oyster", "Barrierless", "Diffusion1", "Diffusion2", "Diffusion3")
 
-shoots <- shoots %>%
-  mutate(
-    preds_mod_s3 = preds$fit,
-    se_mod_s3 = preds$se.fit,
-    Dry_Weight_ug = Dry_Weight_g * 1e6,
-    dye_ug = preds_mod_s3 * Dry_Weight_ug,
-    dye_ug_lower = (preds_mod_s3 - 1.96 * se_mod_s3) * Dry_Weight_ug,
-    dye_ug_upper = (preds_mod_s3 + 1.96 * se_mod_s3) * Dry_Weight_ug
-  )%>%
+preds <- predict(mod_s3, newdata = shoots, se.fit = TRUE)
+
+#Something is getting messed up here. Come back to this
+
+# Step 4: Continue with the pipeline for calculating dye_ug and confidence intervals
+shoots <-  shoots %>% mutate(
+  preds_mod_s3 = preds$fit,
+  se_mod_s3 = preds$se.fit,
+  Dry_Weight_ug = Dry_Weight_g * 1e6,
+  dye_ug = preds_mod_s3 * Dry_Weight_ug,
+  dye_ug_lower = (preds_mod_s3 - 1.96 * se_mod_s3) * Dry_Weight_ug,
+  dye_ug_upper = (preds_mod_s3 + 1.96 * se_mod_s3) * Dry_Weight_ug
+)%>%
   filter(Experiment_Round != "Preliminary")%>% #Throws an error later if I don't do this
   mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))
-
-
-preds_r <- predict(mod_r3, newdata = roots, se.fit = TRUE)
-
-roots <- roots %>%
-  mutate(
-    preds_mod_r3 = preds_r$fit,
-    se_mod_r3 = preds_r$se.fit,
-    Dry_Weight_ug = Dry_Weight_g * 1e6,
-    dye_ug = preds_mod_r3 * Dry_Weight_ug,
-    dye_ug_lower = (preds_mod_r3 - 1.96 * se_mod_r3) * Dry_Weight_ug,
-    dye_ug_upper = (preds_mod_r3 + 1.96 * se_mod_r3) * Dry_Weight_ug
-  )%>%
-  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))%>%
-  filter(Experiment_Round != "Preliminary") #Throws an error later if I don't do this
 
 
 peaks <- read.csv("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Datasets/DW_NanoDrop_all.csv")
@@ -474,46 +513,65 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
  
 #Main dye plot for text, shoots
  
- ggplot(plot, aes(x = (preds_mod_s3)))+
+ ggplot(plot, aes(x = preds_mod_s3))+
    geom_histogram()+
    facet_grid(~Experiment_Round)
  
- #Looks like a gamma, but need to be able to have 0s....
- library(glmmTMB)
- 
- 
- 
+
  nested_models <- plot %>%
    filter(Experiment_Round != "Preliminary") %>%  # Exclude non-replicated group
    group_by(Experiment_Round) %>%
    nest() %>%
    mutate(
-     model = map(data, ~ lm(log1p(preds_mod_s3 * Dry_Weight_ug) ~ Type_Barrier:Chamber, data = .x)),
+    model = map(data, ~ glm(preds_mod_s3 * Dry_Weight_ug ~ Type_Barrier:Chamber,
+                                                 family = quasipoisson(link = "identity"), data = .x)),
      emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
      emmeans_summary = map(emmeans, ~ summary(.x, type = "response")),
      
      # Extract model diagnostics
      model_aug = map(model, ~ augment(.x)),
      residuals = map(model_aug, ~ .x$.resid),
+     fitted = map(model_aug, ~ .x$.fitted),
+     
      shapiro_test = map(residuals, ~ shapiro.test(.x)),
      
-     # QQ plot
+     # Breusch-Pagan test for heteroscedasticity
+     bp_test = map(model, ~ bptest(.x)),
+     
+     # QQ plot for residuals
      qq_plot = map2(residuals, Experiment_Round, ~
                       ggplot(data.frame(resid = .x), aes(sample = resid)) +
                       stat_qq() +
                       stat_qq_line() +
-                      ggtitle(paste("QQ Plot -", .y)))
+                      ggtitle(paste("QQ Plot -", .y))
+     ),
+     resid_fit_plot = map2(residuals, fitted, ~
+                             ggplot(data.frame(fitted = .y, resid = .x), aes(x = fitted, y = resid)) +
+                             geom_point(alpha = 0.6) +
+                             geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+                             ggtitle("Residuals vs Fitted") +
+                             theme_minimal()
+     )
    )
-   
- nested_models$shapiro_test
+ 
  
  nested_models %>%
    pull(qq_plot) %>%
    walk(print)
  
+ nested_models %>%
+   pull(resid_fit_plot) %>%
+   walk(print)
+   
+ nested_models$shapiro_test
+ 
+ nested_models$bp_test
+ #Passes both.
+ 
+ 
 
  all_emmeans <- nested_models %>%
-   select(Experiment_Round, emmeans) %>%
+  # select(Experiment_Round, emmeans) %>%
    mutate(
      # Extracting EMMs and contrasts for Gamma GLM with back-transformation to response scale
      emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
@@ -521,12 +579,12 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
    )
  
  all_emmeans_long <- all_emmeans %>%
-   unnest(emmeans_df)%>%
-   select(-emmeans,-contrast_df)
+   unnest(emmeans_df) %>%
+   dplyr::select(Experiment_Round, Type_Barrier, Chamber, emmean, asymp.LCL, asymp.UCL)
  
  all_contrasts_long <- all_emmeans %>%
    unnest(contrast_df)%>%
-   select(-emmeans,-emmeans_df)
+   dplyr::select(Experiment_Round, Type_Barrier, contrast, estimate, SE, df, z.ratio, p.value)
  
  write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_shoots.csv", row.names = FALSE)
  write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_shoots.csv", row.names = FALSE)
@@ -550,14 +608,14 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
  #Best dye plot
 
  
- ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
+ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = emmean, color = Chamber)) +
    geom_hline(yintercept = 0, linetype = "dashed")+
    geom_point(data = plot,
                aes(x = Type_Barrier, y = preds_mod_s3*Dry_Weight_ug, color = Chamber), shape = 4,
                width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
               position = position_dodge(width = 0.5)) +
    geom_point(position = position_dodge(width = 0.5), size = 5) +
-   geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+   geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
                  position = position_dodge(width = 0.5),
                  width = 0.2) +
    facet_grid(Experiment_Round~., scales = "free_y") +
@@ -597,50 +655,83 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
 
  plot <- shoots %>%
    filter(Experiment_Round != "Preliminary")
-
+ 
  nested_models <- plot %>%
    group_by(Experiment_Round) %>%
    nest() %>%
    mutate(
-     model = map(data, ~ lm(log1p(preds_mod_s3 * Dry_Weight_ug) ~ Type_Barrier:Chamber, data = .x)),
-     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+     # GLM model with quasipoisson distribution
+     model = map(data, ~ glm((preds_mod_s3 * Dry_Weight_ug) ~ Type_Barrier:Chamber,
+                             family = quasipoisson(link = "identity"), data = .x)),
+     
+     # emmeans with bootstrapped confidence intervals
+     emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier, 
+                                    adjust = "none", boot = TRUE, 
+                                    reps = 1000)),  # Specify the number of bootstrap iterations
+     
+     # Summary of emmeans with back-transformation
      emmeans_summary = map(emmeans, ~ summary(.x, type = "response")),
      
      # Extract model diagnostics
      model_aug = map(model, ~ augment(.x)),
      residuals = map(model_aug, ~ .x$.resid),
+     fitted = map(model_aug, ~ .x$.fitted),
+     
+     # Shapiro-Wilk test for normality of residuals
      shapiro_test = map(residuals, ~ shapiro.test(.x)),
      
-     # QQ plot
+     # Breusch-Pagan test for heteroscedasticity
+     bp_test = map(model, ~ bptest(.x)),
+     
+     # QQ plot for residuals
      qq_plot = map2(residuals, Experiment_Round, ~
                       ggplot(data.frame(resid = .x), aes(sample = resid)) +
                       stat_qq() +
                       stat_qq_line() +
-                      ggtitle(paste("QQ Plot -", .y)))
+                      ggtitle(paste("QQ Plot -", .y))
+     ),
+     
+     # Residuals vs Fitted plot for heteroscedasticity
+     resid_fit_plot = map2(residuals, fitted, ~
+                             ggplot(data.frame(fitted = .y, resid = .x), aes(x = fitted, y = resid)) +
+                             geom_point(alpha = 0.6) +
+                             geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+                             ggtitle("Residuals vs Fitted") +
+                             theme_minimal()
+     )
    )
+ nested_models$shapiro_test 
+ nested_models$bp_test
  
- nested_models$shapiro_test #Good
+ #Both not perfect. But also not trying to extract meaningful values for analysis. 
  
  nested_models %>%
    pull(qq_plot) %>%
    walk(print)
  
+ nested_models %>%
+   pull(resid_fit_plot) %>%
+   walk(print)
+ #Not great.
+ 
+ #Bootstrapping because of the violations.
  
  all_emmeans <- nested_models %>%
-   select(Experiment_Round, emmeans) %>%
+  # select(Experiment_Round, emmeans) %>%
    mutate(
      # Extracting EMMs and contrasts for Gamma GLM with back-transformation to response scale
      emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
      contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x, type = "response"))))
    )
 
-all_emmeans_long <- all_emmeans %>%
-  unnest(emmeans_df)%>%
-  select(-emmeans,-contrast_df)
-
-all_contrasts_long <- all_emmeans %>%
-  unnest(contrast_df)%>%
-  select(-emmeans,-emmeans_df)
+ all_emmeans_long <- all_emmeans %>%
+   unnest(emmeans_df) %>%
+   dplyr::select(Experiment_Round, Type_Barrier, Chamber, response, asymp.LCL, asymp.UCL)
+ 
+ all_contrasts_long <- all_emmeans %>%
+   unnest(contrast_df)%>%
+   dplyr::select(Experiment_Round, Type_Barrier, contrast, estimate, SE, df, z.ratio, p.value)
+ 
 
 write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_shoots_supp.csv", row.names = FALSE)
 write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_shoots_supp.csv", row.names = FALSE)
@@ -670,7 +761,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
              width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
   geom_point(position = position_dodge(width = 0.5), size = 5) +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
   facet_grid(Experiment_Round~., scales = "free_y") +
@@ -706,37 +797,85 @@ ggsave(
 
 #Supp roots fig now
 
+preds <- predict(mod_r3, newdata = roots, se.fit = TRUE)
+
+
+#Something is getting messed up here. Come back to this
+
+# Step 4: Continue with the pipeline for calculating dye_ug and confidence intervals
+roots <-  roots %>% mutate(
+  preds_mod_r3 = preds$fit,
+  se_mod_r3 = preds$se.fit,
+  Dry_Weight_ug = Dry_Weight_g * 1e6,
+  dye_ug = preds_mod_r3 * Dry_Weight_ug,
+  dye_ug_lower = (preds_mod_r3 - 1.96 * se_mod_r3) * Dry_Weight_ug,
+  dye_ug_upper = (preds_mod_r3 + 1.96 * se_mod_r3) * Dry_Weight_ug
+)%>%
+  filter(Experiment_Round != "Preliminary")%>% #Throws an error later if I don't do this
+  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))
+
 nested_models <- roots%>%
-  filter(Experiment_Round != "Preliminary")%>%
+  filter(preds_mod_r3*Dry_Weight_ug>=0)%>% #Mod cant deal with negs
+  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))%>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
-    model = map(data, ~ lm(log1p(preds_mod_r3 * Dry_Weight_ug) ~ Type_Barrier:Chamber, data = .x)),
-    emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier)),
+    # GLM model with quasipoisson distribution
+    model = map(data, ~ glm((preds_mod_r3 * Dry_Weight_ug) ~ Type_Barrier:Chamber,
+                            family = quasipoisson(link = "identity"), data = .x)),
+    
+    # emmeans with bootstrapped confidence intervals
+    emmeans = map(model, ~ emmeans(.x, pairwise ~ Chamber | Type_Barrier, 
+                                   adjust = "none", boot = TRUE, 
+                                   reps = 1000)),  # Specify the number of bootstrap iterations
+    
+    # Summary of emmeans with back-transformation
     emmeans_summary = map(emmeans, ~ summary(.x, type = "response")),
     
     # Extract model diagnostics
     model_aug = map(model, ~ augment(.x)),
     residuals = map(model_aug, ~ .x$.resid),
+    fitted = map(model_aug, ~ .x$.fitted),
+    
+    # Shapiro-Wilk test for normality of residuals
     shapiro_test = map(residuals, ~ shapiro.test(.x)),
     
-    # QQ plot
+    # Breusch-Pagan test for heteroscedasticity
+    bp_test = map(model, ~ bptest(.x)),
+    
+    # QQ plot for residuals
     qq_plot = map2(residuals, Experiment_Round, ~
                      ggplot(data.frame(resid = .x), aes(sample = resid)) +
                      stat_qq() +
                      stat_qq_line() +
-                     ggtitle(paste("QQ Plot -", .y)))
+                     ggtitle(paste("QQ Plot -", .y))
+    ),
+    
+    # Residuals vs Fitted plot for heteroscedasticity
+    resid_fit_plot = map2(residuals, fitted, ~
+                            ggplot(data.frame(fitted = .y, resid = .x), aes(x = fitted, y = resid)) +
+                            geom_point(alpha = 0.6) +
+                            geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+                            ggtitle("Residuals vs Fitted") +
+                            theme_minimal()
+    )
   )
-
-nested_models$shapiro_test
 
 nested_models %>%
   pull(qq_plot) %>%
   walk(print)
 
+nested_models %>%
+  pull(resid_fit_plot) %>%
+  walk(print)
+
+nested_models$shapiro_test
+nested_models$bp_test
+
+#Bootstrapped bc of slight violation
 
 all_emmeans <- nested_models %>%
-  select(Experiment_Round, emmeans) %>%
+  dplyr::select(Experiment_Round, emmeans) %>%
   mutate(
     # Extracting EMMs and contrasts for Gamma GLM with back-transformation to response scale
     emmeans_df = map(emmeans, ~ as_tibble(summary(.x, type = "response")$emmeans)),
@@ -745,11 +884,12 @@ all_emmeans <- nested_models %>%
 
 all_emmeans_long <- all_emmeans %>%
   unnest(emmeans_df)%>%
-  select(-emmeans,-contrast_df)
+  dplyr::select(-emmeans,-contrast_df)%>%
+  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))
 
 all_contrasts_long <- all_emmeans %>%
   unnest(contrast_df)%>%
-  select(-emmeans,-emmeans_df)
+  dplyr::select(-emmeans,-emmeans_df)
 
 write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_roots_supp.csv", row.names = FALSE)
 write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_roots_supp.csv", row.names = FALSE)
@@ -772,14 +912,16 @@ significant_contrasts <- all_contrasts_long %>%
 
 #Best dye plot
 
+
+
 ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
   geom_hline(yintercept = 0, linetype = "dashed")+
-  geom_point(data = plot_roots,
+  geom_point(data = roots,
              aes(x = Type_Barrier, y = preds_mod_r3*Dry_Weight_ug, color = Chamber), shape = 4,
              width = 0.15, alpha = .4, size = 7.5, stroke = 1.2,
              position = position_dodge(width = 0.5)) +
   geom_point(position = position_dodge(width = 0.5), size = 5) +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
                 position = position_dodge(width = 0.5),
                 width = 0.2) +
   facet_grid(Experiment_Round~., scales = "free_y") +
