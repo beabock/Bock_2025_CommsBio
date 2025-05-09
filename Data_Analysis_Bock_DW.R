@@ -63,16 +63,23 @@ setwd("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web")
 
 combo_ds2 <- read.csv("Datasets/biomass_ds_long.csv")
 
-desired_order <- c("Experimental", "Impermeable", "Sterile")
+desired_order <- c("Permeable", "Impermeable", "Axenic")
 
 plot <- combo_ds2 %>%
   filter(Experiment_Round != "Preliminary")%>%
   filter(!Type_Barrier %in% c("Barrierless", "Diffusion1", "Diffusion2", "Diffusion", "Diffusion3", "Oyster"))%>% 
+  mutate(
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  )%>%
   group_by(Experiment_Round, Type_Barrier, Box_Nr, Chamber)%>%
   summarize(Plant_Weight_g = Dry_Weight_g[Compartment == "Root"]+
               Dry_Weight_g[Compartment == "Shoot"])%>%
-  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order),
-         Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")))%>%
+  mutate(Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")))%>%
   as.data.frame()
 
 
@@ -144,12 +151,34 @@ all_emmeans <- nested_models_log %>%
   )
 
 all_emmeans_long <- all_emmeans %>%
-  unnest(emmeans_df)%>%
-  select(-emmeans,-contrast_df)
+  dplyr::select(Experiment_Round, emmeans_df) %>%
+  unnest(emmeans_df) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2))) %>%
+  mutate(
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  ) %>%
+  select(-df)
 
 all_contrasts_long <- all_emmeans %>%
-  unnest(contrast_df)%>%
-  select(-emmeans,-emmeans_df)
+  dplyr::select(Experiment_Round, contrast_df) %>%
+  unnest(contrast_df) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  mutate(
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+    p.value = ifelse(p.value < 0.001, "<0.001", formatC(p.value, format = "f", digits = 3)),
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  ) %>%
+  select(-df)
 
 write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_biomass.csv", row.names = FALSE)
 write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_biomass.csv", row.names = FALSE)
@@ -163,7 +192,7 @@ n_labels <- plot %>%
 significant_contrasts <- all_contrasts_long %>%
   filter(p.value < 0.05) %>%
   mutate(
-    Type_Barrier = factor(Type_Barrier, levels = c("Experimental", "Impermeable", "Sterile")),
+    Type_Barrier = factor(Type_Barrier, levels = c("Permeable", "Impermeable", "Axenic")),
     label = case_when(
       p.value < 0.001 ~ "***",
       p.value < 0.01 ~ "**",
@@ -218,16 +247,23 @@ ggsave(
 
 #This one is for the supplementary.
 
-desired_order <- c("Experimental", "Impermeable", "Sterile","Oyster", "Barrierless", "Diffusion1", "Diffusion2", "Diffusion3")
+desired_order <- c("Permeable", "Impermeable", "Axenic","Oyster", "Barrierless", "Diffusion1", "Diffusion2", "Diffusion3")
 
 plot <- combo_ds2 %>%
+  mutate(
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  )%>%
   filter(!is.na(Type_Barrier))%>%
   filter(Experiment_Round != "Preliminary")%>%
   group_by(Experiment_Round, Type_Barrier, Box_Nr, Chamber)%>%
   summarize(Plant_Weight_g = Dry_Weight_g[Compartment == "Root"]+
               Dry_Weight_g[Compartment == "Shoot"])%>%
-  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order),
-         Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")))%>%
+  mutate(Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")))%>%
   as.data.frame()
 
 
@@ -303,15 +339,38 @@ all_emmeans <- nested_models_log %>%
   )
 
 all_emmeans_long <- all_emmeans %>%
-  unnest(emmeans_df)%>%
-  select(-emmeans,-contrast_df)
+  dplyr::select(Experiment_Round, emmeans_df) %>%
+  unnest(emmeans_df) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2))) %>%
+  mutate(
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  ) %>%
+  select(-df)
 
 all_contrasts_long <- all_emmeans %>%
-  unnest(contrast_df)%>%
-  select(-emmeans,-emmeans_df)
+  dplyr::select(Experiment_Round, contrast_df) %>%
+  unnest(contrast_df) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  mutate(
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+    p.value = ifelse(p.value < 0.001, "<0.001", formatC(p.value, format = "f", digits = 3)),
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  ) %>%
+  select(-df)
 
-write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_biomass_supp.csv", row.names = FALSE)
-write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_biomass_supp.csv", row.names = FALSE)
+#write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_biomass_supp.csv", row.names = FALSE)
+#write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_biomass_supp.csv", row.names = FALSE)
 
 
 n_labels <- plot %>%
@@ -440,7 +499,7 @@ ggplot(data.frame(residuals = residuals(mod_r3)), aes(sample = residuals)) +
 ggsave("Comms Bio 2025/Pub_Figures/qqplot_root_controlmodel.png", width = 3, height = 3, dpi = 600)
 
 
-desired_order <- c("Experimental", "Impermeable", "Sterile","Oyster", "Barrierless", "Diffusion1", "Diffusion2", "Diffusion3")
+desired_order <- c("Permeable", "Impermeable", "Axenic","Oyster", "Barrierless", "Diffusion1", "Diffusion2", "Diffusion3")
 
 preds <- predict(mod_s3, newdata = shoots, se.fit = TRUE)
 
@@ -456,7 +515,14 @@ shoots <-  shoots %>% mutate(
   dye_ug_upper = (preds_mod_s3 + 1.96 * se_mod_s3) * Dry_Weight_ug
 )%>%
   filter(Experiment_Round != "Preliminary")%>% #Throws an error later if I don't do this
-  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))
+  mutate(
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  )
 
 
 peaks <- read.csv("C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Datasets/DW_NanoDrop_all.csv")
@@ -486,11 +552,27 @@ avg_abs <- peaks %>%
 #Data included in the dye plot, only comparing receiver plants to each other
 plot <- shoots %>%
   filter(Experiment_Round != "Preliminary")%>% 
-  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))
+  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))%>%
+  mutate(
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  )
 
 plot_roots <- roots %>%
   filter(Experiment_Round != "Preliminary")%>% 
-  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))
+  filter(!Type_Barrier %in% c("Diffusion1", "Barrierless", "Oyster", "Diffusion2", "Diffusion3"))%>%
+  mutate(
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  )
 
 
 #Testing if any differences among treatment in amount of dyed shoot material weighed out for this analysis. Answer: no detectable difference in Round 4. If including round 5, may need to include that in the model. 
@@ -519,7 +601,6 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
  
 
  nested_models <- plot %>%
-   filter(Experiment_Round != "Preliminary") %>%  # Exclude non-replicated group
    group_by(Experiment_Round) %>%
    nest() %>%
    mutate(
@@ -578,13 +659,39 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
      contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x, type = "response"))))
    )
  
+ 
  all_emmeans_long <- all_emmeans %>%
+   dplyr::select(Experiment_Round, emmeans_df) %>%
    unnest(emmeans_df) %>%
-   dplyr::select(Experiment_Round, Type_Barrier, Chamber, emmean, asymp.LCL, asymp.UCL)
+   mutate(across(where(is.numeric), ~ round(.x, 2))) %>%
+   mutate(
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+     Type_Barrier = case_when(
+       Type_Barrier == "Experimental" ~ "Permeable",
+       Type_Barrier == "Sterile" ~ "Axenic",
+       TRUE ~ as.character(Type_Barrier)
+     ),
+     Type_Barrier = factor(Type_Barrier, levels = desired_order),
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")
+     )) %>%
+   select(-df)
  
  all_contrasts_long <- all_emmeans %>%
-   unnest(contrast_df)%>%
-   dplyr::select(Experiment_Round, Type_Barrier, contrast, estimate, SE, df, z.ratio, p.value)
+   dplyr::select(Experiment_Round, contrast_df) %>%
+   unnest(contrast_df) %>%
+   mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+   mutate(
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+     p.value = ifelse(p.value < 0.001, "<0.001", formatC(p.value, format = "f", digits = 3)),
+     Type_Barrier = case_when(
+       Type_Barrier == "Experimental" ~ "Permeable",
+       Type_Barrier == "Sterile" ~ "Axenic",
+       TRUE ~ as.character(Type_Barrier)
+     ),
+     Type_Barrier = factor(Type_Barrier, levels = desired_order),
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")
+   )) %>%
+   select(-df)
  
  write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_shoots.csv", row.names = FALSE)
  write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_shoots.csv", row.names = FALSE)
@@ -724,17 +831,43 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
      contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x, type = "response"))))
    )
 
+ 
  all_emmeans_long <- all_emmeans %>%
+   dplyr::select(Experiment_Round, emmeans_df) %>%
    unnest(emmeans_df) %>%
-   dplyr::select(Experiment_Round, Type_Barrier, Chamber, response, asymp.LCL, asymp.UCL)
+   mutate(across(where(is.numeric), ~ round(.x, 2))) %>%
+   mutate(
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+     Type_Barrier = case_when(
+       Type_Barrier == "Experimental" ~ "Permeable",
+       Type_Barrier == "Sterile" ~ "Axenic",
+       TRUE ~ as.character(Type_Barrier)
+     ),
+     Type_Barrier = factor(Type_Barrier, levels = desired_order),
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")
+     )) %>%
+   select(-df)
  
  all_contrasts_long <- all_emmeans %>%
-   unnest(contrast_df)%>%
-   dplyr::select(Experiment_Round, Type_Barrier, contrast, estimate, SE, df, z.ratio, p.value)
+   dplyr::select(Experiment_Round, contrast_df) %>%
+   unnest(contrast_df) %>%
+   mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+   mutate(
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+     p.value = ifelse(p.value < 0.001, "<0.001", formatC(p.value, format = "f", digits = 3)),
+     Type_Barrier = case_when(
+       Type_Barrier == "Experimental" ~ "Permeable",
+       Type_Barrier == "Sterile" ~ "Axenic",
+       TRUE ~ as.character(Type_Barrier)
+     ),
+     Type_Barrier = factor(Type_Barrier, levels = desired_order),
+     Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")
+     )) %>%
+   select(-df)
  
 
-write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_shoots_supp.csv", row.names = FALSE)
-write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_shoots_supp.csv", row.names = FALSE)
+#write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_shoots_supp.csv", row.names = FALSE)
+#write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_shoots_supp.csv", row.names = FALSE)
 
 
 n_labels <- shoots %>%
@@ -812,11 +945,18 @@ roots <-  roots %>% mutate(
   dye_ug_upper = (preds_mod_r3 + 1.96 * se_mod_r3) * Dry_Weight_ug
 )%>%
   filter(Experiment_Round != "Preliminary")%>% #Throws an error later if I don't do this
-  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))
+  mutate(
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order)
+  )
+
 
 nested_models <- roots%>%
   filter(preds_mod_r3*Dry_Weight_ug>=0)%>% #Mod cant deal with negs
-  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))%>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
@@ -882,17 +1022,42 @@ all_emmeans <- nested_models %>%
     contrast_df = map(emmeans, ~ as_tibble(summary(contrast(.x, type = "response"))))
   )
 
+
 all_emmeans_long <- all_emmeans %>%
-  unnest(emmeans_df)%>%
-  dplyr::select(-emmeans,-contrast_df)%>%
-  mutate(Type_Barrier = factor(Type_Barrier, levels = desired_order))
+  dplyr::select(Experiment_Round, emmeans_df) %>%
+  unnest(emmeans_df) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2))) %>%
+  mutate(
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order),
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")
+    )) %>%
+  select(-df)
 
 all_contrasts_long <- all_emmeans %>%
-  unnest(contrast_df)%>%
-  dplyr::select(-emmeans,-emmeans_df)
+  dplyr::select(Experiment_Round, contrast_df) %>%
+  unnest(contrast_df) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  mutate(
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")),
+    p.value = ifelse(p.value < 0.001, "<0.001", formatC(p.value, format = "f", digits = 3)),
+    Type_Barrier = case_when(
+      Type_Barrier == "Experimental" ~ "Permeable",
+      Type_Barrier == "Sterile" ~ "Axenic",
+      TRUE ~ as.character(Type_Barrier)
+    ),
+    Type_Barrier = factor(Type_Barrier, levels = desired_order),
+    Experiment_Round = factor(Experiment_Round, levels = c("Main", "Follow-Up")
+    )) %>%
+  select(-df)
 
-write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_roots_supp.csv", row.names = FALSE)
-write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_roots_supp.csv", row.names = FALSE)
+#write.csv(all_emmeans_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/emmeans_table_dye_roots_supp.csv", row.names = FALSE)
+#write.csv(all_contrasts_long, "C:/Users/beabo/OneDrive/Documents/NAU/Dark Web/Comms Bio 2025/Pub_Figures/contrasts_table_dye_roots_supp.csv", row.names = FALSE)
 
 
 n_labels <- roots %>%
