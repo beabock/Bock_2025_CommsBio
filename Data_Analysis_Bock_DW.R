@@ -2,6 +2,7 @@
 #21 June 2024
 #This file has all data import, data analysis, and plots for the Dark Web experiment/paper. 
 #4/17/25: Edits back from editor, making some figures for the main text regarding both rounds of experimentation
+#6/2/25: Looking at last (hopefully) round of edits. Checking out error bars for the follow-up experiment.
 
 library(readr) #read_csv
 library(readxl)
@@ -89,8 +90,12 @@ plot %>%
   geom_histogram(bins = 5)
 #Somewhat normal.
 
+group_sizes <- plot %>%
+  count(Experiment_Round, Type_Barrier, Chamber) %>%
+  filter(n >= 2)
 
 nested_models_log <- plot %>%
+  inner_join(group_sizes, by = c("Experiment_Round", "Type_Barrier", "Chamber"))%>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
@@ -274,7 +279,12 @@ plot %>%
 #Somewhat normal.
 
 
+group_sizes <- plot %>%
+  count(Experiment_Round, Type_Barrier, Chamber) %>%
+  filter(n >= 2)
+
 nested_models_log <- plot %>%
+  inner_join(group_sizes, by = c("Experiment_Round", "Type_Barrier", "Chamber"))%>%
   filter(!is.na(Type_Barrier)) %>%
   group_by(Experiment_Round) %>%
   nest() %>%
@@ -599,9 +609,13 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
    geom_histogram()+
    facet_grid(~Experiment_Round)
  
-
+ group_sizes <- plot %>%
+   count(Experiment_Round, Type_Barrier, Chamber) %>%
+   filter(n >= 2)
+ 
  nested_models <- plot %>%
-   group_by(Experiment_Round) %>%
+   inner_join(group_sizes, by = c("Experiment_Round", "Type_Barrier", "Chamber"))%>%
+  group_by(Experiment_Round) %>%
    nest() %>%
    mutate(
     model = map(data, ~ glm(preds_mod_s3 * Dry_Weight_ug ~ Type_Barrier:Chamber,
@@ -763,7 +777,12 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
  plot <- shoots %>%
    filter(Experiment_Round != "Preliminary")
  
+ group_sizes <- plot %>%
+   count(Experiment_Round, Type_Barrier, Chamber) %>%
+   filter(n >= 2)
+ 
  nested_models <- plot %>%
+   inner_join(group_sizes, by = c("Experiment_Round", "Type_Barrier", "Chamber"))%>%
    group_by(Experiment_Round) %>%
    nest() %>%
    mutate(
@@ -899,7 +918,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
                 width = 0.2) +
   facet_grid(Experiment_Round~., scales = "free_y") +
   geom_text(data = n_labels,
-            aes(x = Type_Barrier, y = -2500, label = label),
+            aes(x = Type_Barrier, y = -1000, label = label),
             color = "black", 
             inherit.aes = FALSE)+
   # geom_text(
@@ -955,8 +974,14 @@ roots <-  roots %>% mutate(
   )
 
 
+group_sizes <- roots %>%
+  count(Experiment_Round, Type_Barrier, Chamber) %>%
+  filter(n >= 2)
+
+
 nested_models <- roots%>%
   filter(preds_mod_r3*Dry_Weight_ug>=0)%>% #Mod cant deal with negs
+  inner_join(group_sizes, by = c("Experiment_Round", "Type_Barrier", "Chamber"))%>%
   group_by(Experiment_Round) %>%
   nest() %>%
   mutate(
@@ -1091,7 +1116,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
                 width = 0.2) +
   facet_grid(Experiment_Round~., scales = "free_y") +
   geom_text(data = n_labels,
-            aes(x = Type_Barrier, y = -500, label = label),
+            aes(x = Type_Barrier, y = -300, label = label),
             color = "black", 
             inherit.aes = FALSE)+
   # geom_text(
