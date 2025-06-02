@@ -753,7 +753,7 @@ iqr(plot_roots$Weight_G) #0.000405, update in ms
    )+
    scale_color_manual(values = custom_col, name = "Chamber")+
    labs(x = "Treatment",
-     y = "Dye Content in Leaves (μg)"
+     y = "Dye Content of Leaves (μg)"
    )+
    scale_x_discrete(labels = c(
      "Experimental" = "Permeable",
@@ -930,7 +930,7 @@ ggplot(all_emmeans_long, aes(x = Type_Barrier, y = response, color = Chamber)) +
   # )+
   scale_color_manual(values = custom_col, name = "Chamber")+
   labs(x = "Treatment",
-       y = "Dye Content in Leaves (μg)"
+       y = "Dye Content of Leaves (μg)"
   )+
   scale_x_discrete(labels = c(
     "Experimental" = "Permeable",
